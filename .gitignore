@@ -4,5 +4,7 @@ solar_neutrino_tables
 solar_nu_e_plots
 *.csv
 solar_nu_e_plots_by_flavor
-GarfieldSim
+GarfieldSim/build
+GarfieldSim/plots
+GarfieldSim/tables
 ~$Calcoli.xlsx

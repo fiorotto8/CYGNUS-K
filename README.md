@@ -8,7 +8,8 @@ This repository contains small analysis tools for solar-neutrino fluxes, oscilla
 - `plotFluxes.py`: builds source and flavor-separated solar-neutrino fluxes at Earth and exports plots/CSV.
 - `scatteringPlots.py`: computes and visualizes neutrino-electron scattering observables from the flux inputs.
 - `EnergywithPerformance.py`: compares directional vs non-directional detector response assumptions.
-- `GarfieldSim/`: Garfield/C++ and Python helpers for gas-mixture generation, transport studies, and table/plot production.
+- `GarfieldSim/`: Garfield/C++ and Python helpers for gas-mixture generation, transport studies, and table/plot production. 
+- `DetectorNumbers/`: tabulated gas densities and stopping powers for relevant mixtures, plus utilities for computing diffusion and range.
 
 Detailed descriptions for each code are reported below.
 
@@ -713,5 +714,124 @@ R_{\mathrm{detector}}
 =
 N_e \times R_{\mathrm{single\ electron}}.
 $$
+
+---
+
+## `GarfieldSim/`
+
+This folder contains the Garfield-based transport and gas-processing tools used to study electron transport in the detector gases. It is the part of the repository that turns a gas mixture definition into concrete transport outputs such as drift velocity, diffusion, Townsend coefficient, and attachment coefficient, and then stores those results in plots or tabulated files for later use.
+
+The main goal of this folder is to provide a consistent workflow around Garfield/Magboltz gas files:
+
+- define or load a gas mixture,
+- compute the electron transport properties on the electric-field grid available in the gas table,
+- inspect the transport coefficients with plots,
+- export summary values into CSV files,
+- and keep the resulting plots and tables organized in the local `plots/` and `tables/` subfolders.
+
+### What is inside
+
+The folder includes both C++ ROOT macros and Python scripts. The C++ files are used for gas generation, table merging, Penning handling, and Garfield-side plotting or table production. The Python files are used for lighter post-processing and for reading the gas tables in a more flexible way.
+
+Typical files include:
+
+- `generate.C` and `generate_impurity.C`: scripts used to define or prepare gas mixtures.
+- `merge.C`: combines or merges gas-table related outputs.
+- `penning.C`: handles Penning transfer assumptions when needed.
+- `plotcs.C`, `plotExtrap.C`, `plotvsEN.C`: ROOT macros for cross-section and extrapolation studies.
+- `printTable.C` and `printTable.py`: utilities to inspect or print transport tables.
+- `read.C` and `read.py`: scripts that load a `.gas` file and produce transport plots and summary values.
+- `microscopic.py`: a Python helper used in the more detailed Garfield workflow.
+- `tables/`: input gas tables used by the scripts.
+- `plots/`: generated figures and transport-summary CSV files.
+
+### What the scripts do
+
+The core transport workflow is centered on a Garfield gas file. A gas file encodes the mixture composition, pressure, temperature, and the tabulated transport data as a function of field. From that table, the scripts can extract and compare:
+
+- electron drift velocity,
+- longitudinal and transverse diffusion,
+- Townsend coefficient,
+- attachment coefficient,
+- and related transport observables.
+
+The plotting scripts are used to turn those values into a readable visual summary. The output plots are meant for quick detector studies and comparisons across gas mixtures, not for a full Garfield analysis chain.
+
+### Output philosophy
+
+The emphasis is on practical detector-oriented outputs. In particular, the scripts usually save:
+
+- one plot per transport observable,
+- a CSV summary for selected field points,
+- and, when needed, comparison plots that place several gas mixtures on the same axes.
+
+This makes it easy to compare gases such as CF4 and He-based mixtures at a glance and to pass the values into later detector calculations.
+
+### Notes on usage
+
+The folder is meant to be used with Garfield/Magboltz data already prepared for the chosen gas mixtures. The scripts do not attempt a full microscopic simulation from scratch every time; instead, they load the prepared gas tables and extract the relevant transport information from them.
+
+In the current workflow, this is also where the transport-point CSV files are created, which are then consumed by the detector-level post-processing scripts in `DetectorNumbers/`.
+
+---
+
+## `DetectorNumbers/`
+
+This folder collects the numerical inputs and post-processing tools used to translate detector gas properties into useful macroscopic quantities. It contains the tabulated gas densities, stopping powers, and the scripts that turn those tables into diffusion and range estimates for the detector studies.
+
+The role of this folder is to bridge the gap between raw gas-property tables and the quantities used in detector design:
+
+- gas density tables provide the material density for a given mixture and pressure,
+- stopping-power tables provide the energy-loss input for electron transport calculations,
+- and the scripts combine those inputs with Garfield transport outputs to produce range and diffusion summaries.
+
+### Main inputs
+
+The folder contains the gas-property tables used by the analysis, including:
+
+- `GasDensities.csv`: the density table for the gas mixtures considered in the study,
+- `CF4_Stopping_power_electrons.csv`, `HeCF4_Stopping_power_electrons.csv`, and `HeCF4CH4_Stopping_power_electrons.csv`: collisional stopping-power tables for the corresponding base gases or mixtures,
+- and the derived transport CSVs and plots generated from the Garfield-side workflow.
+
+These files provide the numerical basis for computing how far electrons travel and how much they spread in the gas.
+
+### Main scripts
+
+The two main scripts in this folder are:
+
+- `computePlotRanges.py`: reads the gas-density table and the collisional stopping-power table, then computes electron ranges under the constant slowing-down approximation. The result is plotted as range versus energy for the available gas entries.
+- `computeDiffusion.py`: reads the Garfield transport-point CSV files from the plots folder, computes the 2σ diffusion expected over a 50 cm drift length, and writes a summary table plus comparison plots of diffusion versus electric field.
+
+### What the calculations mean
+
+For range calculations, the stopping power is used together with the gas density to estimate the electron range as a function of energy. The constant slowing-down approximation treats the inverse stopping power as the local contribution to the path length. This is a practical detector-level estimate that is good for comparing gases and energy scales.
+
+For diffusion calculations, the Garfield transport CSVs store the diffusion coefficients in units of $\sqrt{\rm cm}$. The script converts those coefficients into a physical spread over a chosen drift length using
+
+$$
+\sigma = D\,\sqrt{L},
+$$
+
+and then reports the two-sigma width as
+
+$$
+2\sigma = 2D\sqrt{L}.
+$$
+
+In the current setup, the drift length is 50 cm, so the script reports the expected 2σ spread over that distance for each gas and each field point.
+
+### Outputs
+
+This folder is where the derived detector-number summaries are written. Typical outputs include:
+
+- range-versus-energy plots,
+- a CSV summary of diffusion values over 50 cm,
+- and comparison figures showing how the diffusion changes with electric field for each gas.
+
+These outputs are intended for quick comparison of mixtures and operating points, especially when deciding which gas is better suited for a directional detector or for a given diffusion target.
+
+### How it fits into the workflow
+
+`DetectorNumbers/` is the numerical post-processing layer after the Garfield transport study. The Garfield folder produces the transport-point tables, and this folder consumes those tables to make higher-level detector metrics. In other words, `GarfieldSim/` answers “what does the gas do at a given field?”, while `DetectorNumbers/` answers “what does that mean for range and drift over a detector-scale distance?”.
 
 ---
