@@ -7,12 +7,15 @@ from pathlib import Path
 # User settings
 # ============================================================
 DATA_DIR = Path("./solar_neutrino_tables")
+OUT_DIR = Path("./solar_neutrino_fluxes")
 
-OUT_COMPONENTS = "solar_neutrino_fluxes_loglog_physical.png"
-OUT_TOTAL = "solar_neutrino_total_flux_loglog.png"
-OUT_FLAVORS = "solar_neutrino_flavor_fluxes_loglog.png"
-OUT_PEE = "solar_neutrino_pee_logx.png"
-OUT_CSV = "solar_neutrino_total_flux.csv"
+OUT_DIR.mkdir(exist_ok=True)
+
+OUT_COMPONENTS = OUT_DIR / "solar_neutrino_fluxes_loglog_physical.png"
+OUT_TOTAL = OUT_DIR / "solar_neutrino_total_flux_loglog.png"
+OUT_FLAVORS = OUT_DIR / "solar_neutrino_flavor_fluxes_loglog.png"
+OUT_PEE = OUT_DIR / "solar_neutrino_pee_logx.png"
+OUT_CSV = OUT_DIR / "solar_neutrino_total_flux.csv"
 
 LINE_BIN_WIDTH_MEV = 0.002   # 2 keV
 YMIN = 1e-2

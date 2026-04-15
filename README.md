@@ -1,5 +1,17 @@
 # Tools for Directional Neutrinos
 
+## Short recap of the codes
+
+This repository contains small analysis tools for solar-neutrino fluxes, oscillations, and neutrino-electron scattering, plus Garfield-based gas simulation utilities.
+
+- `downladFluxes.py`: downloads solar-neutrino spectrum tables and writes a local manifest.
+- `plotFluxes.py`: builds source and flavor-separated solar-neutrino fluxes at Earth and exports plots/CSV.
+- `scatteringPlots.py`: computes and visualizes neutrino-electron scattering observables from the flux inputs.
+- `EnergywithPerformance.py`: compares directional vs non-directional detector response assumptions.
+- `GarfieldSim/`: Garfield/C++ and Python helpers for gas-mixture generation, transport studies, and table/plot production.
+
+Detailed descriptions for each code are reported below.
+
 ## `EnergywithPerformance.py`
 
 This script compares directional and non-directional detectors for elastic scattering:
@@ -360,3 +372,346 @@ Main limitations:
 - no dedicated uncertainty propagation is performed
 
 Therefore, the code is appropriate for detector studies, plotting, and first-order rate estimates, but not for precision solar-neutrino oscillation analyses.
+
+# plotFluxes.py
+
+## Solar neutrino $\nu$-e scattering script
+
+This script takes as input the **flavor-separated solar-neutrino fluxes at Earth** produced by the previous flux/oscillation code, and computes the expected elastic-scattering signal on a **single electron target**.
+
+The input CSV is assumed to contain:
+
+- $E_\nu$ in MeV
+- total differential flux
+- $\nu_e$ differential flux
+- $\nu_\mu$ differential flux
+- $\nu_\tau$ differential flux
+
+with flux units
+
+$$
+\frac{d\Phi}{dE_\nu}
+\quad [\mathrm{cm^{-2}\ s^{-1}\ MeV^{-1}}].
+$$
+
+The script then combines these fluxes with approximate $\nu e^-$ elastic-scattering cross sections and with the Standard Model angular shape of the recoil electron distribution.
+
+---
+
+## Physics implemented
+
+### 1. Total $\nu$-e cross sections
+
+The script uses simple linear approximations for the total cross section:
+
+$$
+\sigma(E_\nu) = k\,E_\nu,
+$$
+
+with $E_\nu$ in MeV and $\sigma$ in cm$^2$.
+
+The coefficients used are [Ref](https://arxiv.org/pdf/hep-ph/0307222) and [Ref](https://arxiv.org/pdf/hep-ph/0408031):
+
+$$
+\sigma(\nu_e e^-)\simeq 9.20\times 10^{-45}\,E_\nu(\mathrm{MeV})\ \mathrm{cm^2},
+$$
+
+$$
+\sigma(\bar{\nu}_e e^-)\simeq 3.83\times 10^{-45}\,E_\nu(\mathrm{MeV})\ \mathrm{cm^2},
+$$
+
+$$
+\sigma(\nu_{\mu,\tau} e^-)\simeq 1.57\times 10^{-45}\,E_\nu(\mathrm{MeV})\ \mathrm{cm^2},
+$$
+
+$$
+\sigma(\bar{\nu}_{\mu,\tau} e^-)\simeq 1.29\times 10^{-45}\,E_\nu(\mathrm{MeV})\ \mathrm{cm^2}.
+$$
+
+For solar neutrinos, only neutrino channels are relevant, so in practice:
+
+- $\nu_e$ uses $\sigma_{\nu_e e}$,
+- $\nu_\mu$ and $\nu_\tau$ use $\sigma_{\nu_x e}$, with $x=\mu,\tau$.
+
+---
+
+### 2. Differential cross section in recoil energy
+
+To describe the angular shape of the scattered electron, the script starts from the Standard Model tree-level differential cross section with respect to the electron recoil kinetic energy $T$:
+
+$$
+\frac{d\sigma}{dT}
+=
+\frac{2G_F^2 m_e}{\pi}
+\left[
+g_L^2
++
+g_R^2\left(1-\frac{T}{E_\nu}\right)^2
+-
+g_L g_R \frac{m_e T}{E_\nu^2}
+\right].
+$$
+
+Here:
+
+- $G_F$ is the Fermi constant,
+- $m_e$ is the electron mass,
+- $g_L$ and $g_R$ are the weak couplings,
+- $E_\nu$ is the neutrino energy,
+- $T$ is the recoil kinetic energy of the electron.
+
+The couplings depend on the neutrino flavor:
+
+For $\nu_e$ scattering:
+
+$$
+g_L = \frac{1}{2} + \sin^2\theta_W,
+\qquad
+g_R = \sin^2\theta_W,
+$$
+
+while for $\nu_{\mu,\tau}$ scattering:
+
+$$
+g_L = -\frac{1}{2} + \sin^2\theta_W,
+\qquad
+g_R = \sin^2\theta_W.
+$$
+
+This difference reflects the fact that $\nu_e e^-$ scattering receives both charged-current and neutral-current contributions, while $\nu_\mu e^-$ and $\nu_\tau e^-$ receive only neutral-current contributions.
+
+---
+
+### 3. Recoil-energy kinematics
+
+For elastic scattering of a neutrino on an electron initially at rest, the maximum allowed recoil energy is
+
+$$
+T_{\max}(E_\nu)
+=
+\frac{2E_\nu^2}{m_e + 2E_\nu}.
+$$
+
+This defines the physical range of the recoil electron kinetic energy.
+
+The script also uses the inverse relation giving the minimum neutrino energy required to produce a recoil $T$:
+
+$$
+E_\nu^{\min}(T)
+=
+\frac{1}{2}
+\left(
+T + \sqrt{T^2 + 2m_e T}
+\right).
+$$
+
+---
+
+### 4. Relation between recoil angle and recoil energy
+
+To obtain the angular distribution of the outgoing electron, the script uses the relation between the recoil angle $\theta_e$ and the recoil kinetic energy $T$.
+
+Writing $c=\cos\theta_e$, the implemented formula is
+
+$$
+T(E_\nu,c)
+=
+\frac{2m_e E_\nu^2 c^2}
+{(E_\nu+m_e)^2 - E_\nu^2 c^2}.
+$$
+
+The Jacobian for the change of variable from $T$ to $\cos\theta_e$ is
+
+$$
+\frac{dT}{d\cos\theta_e}
+=
+\frac{4m_e E_\nu^2 (E_\nu+m_e)^2 \cos\theta_e}
+{\left[(E_\nu+m_e)^2 - E_\nu^2 \cos^2\theta_e\right]^2}.
+$$
+
+The differential cross section in angle is then obtained as
+
+$$
+\frac{d\sigma}{d\cos\theta_e}
+=
+\frac{d\sigma}{dT}
+\frac{dT}{d\cos\theta_e}.
+$$
+
+This gives the **shape** of the electron recoil angular distribution.
+
+---
+
+### 5. Rescaling to the chosen total cross section
+
+The script uses the Standard Model formula above only for the **shape** of the angular distribution. Since the total rate is normalized to the simpler approximate cross sections, the angular differential cross section is rescaled so that its integral matches the chosen total cross section:
+
+$$
+\left(\frac{d\sigma}{d\cos\theta_e}\right)_{\mathrm{rescaled}}
+=
+\left(\frac{d\sigma}{d\cos\theta_e}\right)_{\mathrm{SM}}
+\,
+\frac{\sigma_{\mathrm{approx}}(E_\nu)}
+{\int d(\cos\theta_e)\,
+\left(\frac{d\sigma}{d\cos\theta_e}\right)_{\mathrm{SM}} }.
+$$
+
+In this way:
+
+- the **shape** comes from the Standard Model tree-level calculation,
+- the **normalization** comes from the chosen approximate total cross section.
+
+---
+
+## Flux convolution
+
+### 6. Rate per neutrino-energy bin
+
+For a single electron target, the expected contribution from one neutrino-energy bin is
+
+$$
+R_i
+=
+\phi(E_i)\,\sigma(E_i)\,\Delta E_i,
+$$
+
+where:
+
+- $\phi(E_i)$ is the differential neutrino flux in that bin,
+- $\sigma(E_i)$ is the total scattering cross section,
+- $\Delta E_i$ is the bin width.
+
+The result has units:
+
+$$
+[\mathrm{s^{-1}\ per\ electron\ per\ bin}].
+$$
+
+This is computed separately for each flavor:
+
+$$
+R_i^{(\nu_e)} = \phi_{\nu_e}(E_i)\,\sigma_{\nu_e e}(E_i)\,\Delta E_i,
+$$
+
+$$
+R_i^{(\nu_\mu)} = \phi_{\nu_\mu}(E_i)\,\sigma_{\nu_x e}(E_i)\,\Delta E_i,
+$$
+
+$$
+R_i^{(\nu_\tau)} = \phi_{\nu_\tau}(E_i)\,\sigma_{\nu_x e}(E_i)\,\Delta E_i.
+$$
+
+The total rate per bin is
+
+$$
+R_i^{\mathrm{tot}}
+=
+R_i^{(\nu_e)}
++
+R_i^{(\nu_\mu)}
++
+R_i^{(\nu_\tau)}.
+$$
+
+---
+
+### 7. Flux-convolved angular rate
+
+The script also computes the angular recoil rate by integrating over the full neutrino spectrum:
+
+$$
+\frac{dR}{d\cos\theta_e}
+=
+\int dE_\nu\,
+\phi(E_\nu)\,
+\frac{d\sigma}{d\cos\theta_e}(E_\nu).
+$$
+
+Numerically, this is approximated as a sum over the input energy bins:
+
+$$
+\frac{dR}{d\cos\theta_e}
+\simeq
+\sum_i
+\phi(E_i)\,
+\frac{d\sigma}{d\cos\theta_e}(E_i)\,
+\Delta E_i.
+$$
+
+Again, this is done separately for $\nu_e$, $\nu_\mu$, and $\nu_\tau$, and then summed.
+
+The result has units:
+
+$$
+[\mathrm{s^{-1}\ per\ electron}].
+$$
+
+---
+
+### 8. Normalized angular probability density
+
+Finally, the script constructs a normalized angular distribution, representing the probability density for the recoil direction given that one interaction has occurred:
+
+$$
+P(\cos\theta_e)
+=
+\frac{\dfrac{dR}{d\cos\theta_e}}
+{\int d(\cos\theta_e)\,\dfrac{dR}{d\cos\theta_e}}.
+$$
+
+This quantity is dimensionless and integrates to unity:
+
+$$
+\int_0^1 P(\cos\theta_e)\,d(\cos\theta_e)=1.
+$$
+
+This is useful when one wants to study only the **shape** of the recoil direction distribution, independently of the absolute interaction rate.
+
+---
+
+## What the plots mean
+
+The script produces several plots:
+
+- `cross_sections_plain.png`  
+  shows the approximate total $\nu e$ cross sections as functions of neutrino energy.
+
+- `input_fluxes_by_flavor.png`  
+  shows the input solar-neutrino fluxes at Earth for $\nu_e$, $\nu_\mu$, and $\nu_\tau$.
+
+- `angular_differential_cross_sections_nu_e.png`  
+  shows $d\sigma/d\cos\theta_e$ for $\nu_e e^-$ scattering at selected neutrino energies.
+
+- `angular_differential_cross_sections_nu_x.png`  
+  shows $d\sigma/d\cos\theta_e$ for $\nu_{\mu,\tau} e^-$ scattering at selected neutrino energies.
+
+- `convolved_rate_per_energy_bin_by_flavor.png`  
+  shows the rate contribution from each neutrino-energy bin for each flavor and for the total.
+
+- `convolved_angular_rate_by_flavor.png`  
+  shows the absolute recoil-angle rate distribution for each flavor and for the total.
+
+- `convolved_angular_pdf_by_flavor.png`  
+  shows the normalized recoil-angle distributions, useful to compare the directional shapes.
+
+---
+
+## Main approximations
+
+This script is intended for detector studies and first-order estimates. The main simplifications are:
+
+- the total cross sections are taken from linear approximations in $E_\nu$,
+- the angular shape is taken from the tree-level Standard Model formula,
+- the angular differential cross section is rescaled to match the approximate total cross section,
+- detector effects such as threshold, energy resolution, angular resolution, and efficiency are not included,
+- the calculation is done for a **single electron target**.
+
+To obtain rates for a real detector, the result must be multiplied by the total number of target electrons:
+
+$$
+R_{\mathrm{detector}}
+=
+N_e \times R_{\mathrm{single\ electron}}.
+$$
+
+---
