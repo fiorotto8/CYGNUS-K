@@ -1,5 +1,104 @@
 # Tools for Directional Neutrinos
 
+## Current status
+
+This repository currently has a working end-to-end analysis chain for:
+
+- building solar-neutrino source and flavor fluxes at Earth
+- computing $\nu$-e scattering observables
+- converting those single-electron rates into gas-target detector rates
+- estimating reconstructed neutrino-energy spectra for gas detectors with
+  configurable energy and angular resolution
+
+The most actively used parts of the repository right now are:
+
+- `plotFluxes.py`
+- `scatteringPlots.py`
+- `gasTargetRates.py`
+- `recoNuEnergyComparison.py`
+- `detector_geometry.json`
+- `reco_response_config.json`
+
+The repository already contains generated outputs for the current default
+configuration in:
+
+- `solar_neutrino_fluxes/`
+- `solar_nu_e_plots_by_flavor/`
+- `solar_nu_gas_target_rates/`
+- `solar_nu_reco_energy_comparison/`
+
+At the moment, the detector-facing workflow is configured for:
+
+- a default detector volume of `200 m^3`
+- seven gas-target entries from `DetectorNumbers/GasDensities.csv`
+- range-based recoil thresholds from `DetectorNumbers/electron_range_energy_table.csv`
+- a reconstruction model with threshold-scaled resolution terms plus optional
+  constant resolution floors
+
+## Recommended workflow
+
+For the current repository state, the intended analysis order is:
+
+1. Run `downladFluxes.py` if the raw solar-neutrino tables need to be refreshed.
+2. Run `plotFluxes.py` to build the source and flavor-separated solar-neutrino fluxes at Earth.
+3. Run `gasTargetRates.py` to compute accepted detector rates for each gas target.
+4. Run `recoNuEnergyComparison.py` to estimate reconstructed neutrino-energy spectra for the same gas targets.
+
+In practice, steps 2 to 4 are the main working chain for the current detector studies.
+
+## Important config files
+
+### `detector_geometry.json`
+
+This file defines the default detector geometry used by both
+`gasTargetRates.py` and `recoNuEnergyComparison.py`.
+
+The current file is:
+
+- `length_m = 2`
+- `width_m = 10`
+- `height_m = 10`
+
+so the default volume is:
+
+$$
+V = 2 \times 10 \times 10 = 200\ {\rm m}^3.
+$$
+
+### `reco_response_config.json`
+
+This file defines the reconstruction response model used by
+`recoNuEnergyComparison.py`.
+
+The current default configuration uses:
+
+- `energy_resolution_at_threshold_frac = 0.3`
+- `energy_resolution_constant_frac = 0.0`
+- `angular_resolution_at_threshold_deg = 20.0`
+- `angular_resolution_constant_deg = 0.0`
+- `reco_energy_bins = 80`
+
+So the code is already set up for a mixed model with:
+
+- a threshold-scaled contribution
+- a constant floor contribution
+
+but the constant floors are currently set to zero in the default checked-in
+configuration.
+
+## Current generated outputs
+
+The checked-in/generated working directories currently correspond to the same
+set of seven gas targets:
+
+- `CF4 @ 1 atm`
+- `CF4 @ 3 atm`
+- `CF4 @ 10 atm`
+- `HeCF4(60% He 40% CF4) @ 1 atm`
+- `HeCF4CH4(58% He 37% CF4 5% CH4) @ 1 atm`
+- `HeCF4CH4(58% He 37% CF4 5% CH4) @ 0.5 atm`
+- `HeCF4CH4(58% He 37% CF4 5% CH4) @ 0.1 atm`
+
 ## Short recap of the codes
 
 This repository contains small analysis tools for solar-neutrino fluxes, oscillations, and neutrino-electron scattering, plus Garfield-based gas simulation utilities.
@@ -7,11 +106,688 @@ This repository contains small analysis tools for solar-neutrino fluxes, oscilla
 - `downladFluxes.py`: downloads solar-neutrino spectrum tables and writes a local manifest.
 - `plotFluxes.py`: builds source and flavor-separated solar-neutrino fluxes at Earth and exports plots/CSV.
 - `scatteringPlots.py`: computes and visualizes neutrino-electron scattering observables from the flux inputs.
+- `gasTargetRates.py`: rescales the single-electron scattering rates to the gas targets in `DetectorNumbers/GasDensities.csv` and writes differential rate tables in neutrino energy, recoil energy, and recoil direction.
+- `recoNuEnergyComparison.py`: estimates reconstructed neutrino-energy spectra for energy-only and energy+direction measurements using gas-dependent thresholds, propagated uncertainties, and coarse reconstructed-energy bins.
 - `EnergywithPerformance.py`: compares directional vs non-directional detector response assumptions.
 - `GarfieldSim/`: Garfield/C++ and Python helpers for gas-mixture generation, transport studies, and table/plot production. 
 - `DetectorNumbers/`: tabulated gas densities and stopping powers for relevant mixtures, plus utilities for computing diffusion and range.
+- `detector_geometry.json`: default geometry shared by the gas-rate and reconstruction scripts.
+- `reco_response_config.json`: default reconstruction-response configuration shared by the reconstructed-spectrum workflow.
 
 Detailed descriptions for each code are reported below.
+
+## `gasTargetRates.py`
+
+This script turns the **single-electron solar-neutrino scattering calculation**
+into a **gas-target detector-rate calculation**.
+
+Conceptually, it sits between:
+
+- the solar-neutrino flux builder, `plotFluxes.py`
+- the single-electron scattering code, `scatteringPlots.py`
+- the detector gas tables in `DetectorNumbers/`
+
+The script is therefore the first place in the workflow where the calculation
+becomes detector-specific.
+
+---
+
+### What it reads
+
+The script combines four ingredients:
+
+1. `solar_neutrino_fluxes/solar_neutrino_total_flux.csv`  
+   flavor-separated solar-neutrino fluxes at Earth
+
+2. `DetectorNumbers/GasDensities.csv`  
+   gas densities for the supported mixtures and pressures
+
+3. `DetectorNumbers/electron_range_energy_table.csv`  
+   the recoil-energy thresholds derived from the range study
+
+4. `detector_geometry.json`  
+   a simple detector volume configuration
+
+The current default geometry file is:
+
+- 2 m x 10 m x 10 m = 200 m$^3$
+
+---
+
+### Main idea
+
+`scatteringPlots.py` computes rates for **one target electron**.
+
+`gasTargetRates.py` rescales those results to a real gas detector by:
+
+1. converting gas density into **number of target electrons**
+2. applying a **gas-dependent recoil-energy acceptance window**
+3. multiplying by the detector volume
+
+So the logic is:
+
+$$
+\text{solar flux}
+\;\longrightarrow\;
+\text{single-electron rate}
+\;\longrightarrow\;
+\text{gas-target accepted detector rate}.
+$$
+
+---
+
+### Target-electron density
+
+For each gas entry, the script defines the gas composition explicitly and computes
+the electron density from the gas mass density.
+
+If a mixture is made of components $i$ with fractions $x_i$, molecular electron
+counts $Z_i$, and molar masses $M_i$, the code builds
+
+$$
+\langle Z \rangle = \sum_i x_i Z_i,
+\qquad
+\langle M \rangle = \sum_i x_i M_i,
+$$
+
+and then computes
+
+$$
+n_e
+=
+\rho
+\frac{N_A}{\langle M \rangle}
+\langle Z \rangle,
+$$
+
+where:
+
+- $\rho$ is the gas density in g/cm$^3$
+- $N_A$ is Avogadro's constant
+- $n_e$ is the electron density in electrons/cm$^3$
+
+The total number of target electrons is then
+
+$$
+N_e = n_e \, V,
+$$
+
+with $V$ the detector fiducial volume in cm$^3$.
+
+---
+
+### Gas-dependent recoil window
+
+The script does **not** integrate over all possible recoil electrons.
+Instead it uses the range study to define the detectable recoil-energy window.
+
+For each gas entry:
+
+- the **lower recoil threshold** is the electron energy for which the range is 1 mm
+- the **upper recoil threshold** is the electron energy for which the range is 1 m
+
+These values are read from:
+
+`DetectorNumbers/electron_range_energy_table.csv`
+
+So each gas has its own accepted recoil window:
+
+$$
+T_{\min}^{\rm gas} \le T_e \le T_{\max}^{\rm gas}.
+$$
+
+This is a key point: the rates are no longer "all scatters in the gas", but only
+the scatters whose recoil electron falls inside the range-based acceptance window.
+
+---
+
+### Differential rates computed
+
+The script writes three accepted detector-level spectra for each gas:
+
+#### 1. Differential rate in neutrino energy
+
+This answers:
+
+"At which neutrino energies do the accepted events come from?"
+
+The implemented quantity is
+
+$$
+\frac{dR}{dE_\nu}
+=
+N_e
+\sum_\alpha
+\phi_\alpha(E_\nu)\,
+\sigma_\alpha^{\rm acc}(E_\nu),
+$$
+
+where:
+
+- $\alpha = \nu_e,\nu_\mu,\nu_\tau$
+- $\phi_\alpha(E_\nu)$ is the flavor flux at Earth
+- $\sigma_\alpha^{\rm acc}(E_\nu)$ is the cross section integrated only over the
+  accepted recoil-energy window
+
+This is saved as:
+
+- `dR_dEnu.csv`
+- `dR_dEnu.png`
+
+#### 2. Differential rate in recoil-electron energy
+
+This answers:
+
+"What recoil-electron energy spectrum does the detector see?"
+
+The code computes
+
+$$
+\frac{dR}{dT_e}
+=
+N_e
+\sum_\alpha
+\int dE_\nu\,
+\phi_\alpha(E_\nu)\,
+\frac{d\sigma_\alpha}{dT_e}(E_\nu,T_e),
+$$
+
+and then sets the result to zero outside the gas-dependent window
+$[T_{\min}^{\rm gas}, T_{\max}^{\rm gas}]$.
+
+This is saved as:
+
+- `dR_dTe.csv`
+- `dR_dTe.png`
+
+#### 3. Differential rate in recoil direction
+
+This answers:
+
+"What angular distribution do the accepted recoil electrons have?"
+
+The implemented quantity is
+
+$$
+\frac{dR}{d\cos\theta_e}
+=
+N_e
+\sum_\alpha
+\int dE_\nu\,
+\phi_\alpha(E_\nu)\,
+\frac{d\sigma_\alpha}{d\cos\theta_e}(E_\nu,\theta_e),
+$$
+
+with an additional recoil-energy cut applied through the kinematic relation
+between $E_\nu$, $\theta_e$, and $T_e$.
+
+This is saved as:
+
+- `dR_dcosth.csv`
+- `dR_dcosth.png`
+
+---
+
+### Cross-section normalization strategy
+
+The script follows the same philosophy as `scatteringPlots.py`:
+
+- the **shape** of the recoil distributions comes from the Standard Model tree-level
+  differential cross sections
+- the **overall normalization** comes from the simple approximate total
+  cross sections already used elsewhere in the repository
+
+For the neutrino-energy spectrum, the code first computes the fraction of the
+total cross section that lies inside the accepted recoil window, and then applies
+that fraction to the approximate total cross section.
+
+This keeps the gas-target rate calculation consistent with the existing
+single-electron code rather than introducing a separate normalization convention.
+
+---
+
+### Output structure
+
+The script creates:
+
+- one root output folder: `solar_nu_gas_target_rates/`
+- one subfolder per gas entry, for example:
+  - `cf4_1atm/`
+  - `cf4_3atm/`
+  - `hecf4ch4_58_he_37_cf4_5_ch4_1atm/`
+
+Each gas subfolder contains:
+
+- `dR_dEnu.csv`
+- `dR_dEnu.png`
+- `dR_dTe.csv`
+- `dR_dTe.png`
+- `dR_dcosth.csv`
+- `dR_dcosth.png`
+
+The root folder also contains:
+
+- `gas_target_rate_summary.csv`
+- `gas_target_total_rate_comparison.png`
+
+The summary CSV records, for each gas:
+
+- the recoil window used
+- the detector volume used
+- the electron density
+- the total number of target electrons
+- the integrated total rates
+- the per-gas output subdirectory name
+
+---
+
+### Configuration and execution
+
+Default run:
+
+```bash
+python3 gasTargetRates.py
+```
+
+Optional manual volume override:
+
+```bash
+python3 gasTargetRates.py --volume-cm3 1000000
+```
+
+which corresponds to 1 m$^3$.
+
+In practice, the script is usually meant to be run with the geometry config,
+because that keeps the detector dimensions explicit and reproducible.
+
+The currently checked-in output directory `solar_nu_gas_target_rates/` was
+produced with this default geometry/configuration chain.
+
+---
+
+### Main approximations
+
+The gas-target script inherits the approximations of `plotFluxes.py` and
+`scatteringPlots.py`, and adds detector-side simplifications:
+
+- the neutrino flux model is still a simplified detector-oriented solar model
+- the total $\nu$-e cross sections still use the linear approximations in $E_\nu$
+- the recoil-window cut is based only on **electron range**
+- no efficiency turn-on is modeled apart from the hard recoil window
+- no spatial fiducial inefficiency is included
+- no diffusion or readout smearing is folded into the accepted rate
+
+So this script should be read as a detector-level **accepted-rate estimate**, not
+as a full detector simulation.
+
+---
+
+## `recoNuEnergyComparison.py`
+
+This script addresses a different question from `gasTargetRates.py`.
+
+`gasTargetRates.py` tells you **how many accepted events** a gas detector gets.
+
+`recoNuEnergyComparison.py` asks:
+
+"Once those events are measured with finite energy and angular resolution, how
+does the reconstructed neutrino-energy spectrum look in the detector?"
+
+Its purpose is now narrower and cleaner than before:
+
+- build the accepted true neutrino-energy spectrum for each gas
+- estimate the reconstructed `dR/dE_\nu` spectrum for an **energy-only** detector
+- estimate the reconstructed `dR/dE_\nu` spectrum for an **energy + direction** detector
+
+The script no longer computes improvement factors, RMS resolution curves, or
+Monte Carlo-based performance summaries.
+
+---
+
+### What it compares
+
+For each gas target, the script builds two reconstructed neutrino-energy spectra:
+
+1. **energy-only reconstruction**
+2. **energy + direction reconstruction**
+
+Both use the same accepted event sample and the same gas-dependent recoil window.
+The only difference is whether the recoil angle is used in the neutrino-energy
+estimator.
+
+---
+
+### Response model
+
+The detector response is controlled by:
+
+`reco_response_config.json`
+
+The current configuration defines:
+
+- `energy_resolution_at_threshold_frac`
+- `energy_resolution_constant_frac`
+- `angular_resolution_at_threshold_deg`
+- `angular_resolution_constant_deg`
+- `reco_energy_bins`
+
+In addition, the script has a command-line option
+
+- `--t-grid-points`
+- `--max-true-energy-points`
+
+which set:
+
+- how finely the accepted recoil-energy interval is integrated for each true
+  neutrino-energy sample
+- how many representative true-energy support points are kept before the
+  smearing step
+
+The second option is primarily a speed-control parameter. The default run does
+not smear the full 20,000-point flux grid directly. Instead it compresses the
+accepted true-energy support into a smaller number of rate-weighted points,
+which makes the reconstruction step much faster while preserving the overall
+accepted spectrum accurately enough for this detector-level study.
+
+The key feature is that both the energy resolution and the angular resolution are
+described by a threshold-scaled term plus a constant floor, both tied to the
+gas-dependent threshold energy:
+
+$$
+\frac{\sigma_E}{E}(T_e)
+=
+\sqrt{
+\left(
+{\rm res}_{E,{\rm thr}}
+\sqrt{\frac{E_{\rm thr}}{T_e}}
+\right)^2
++
+{\rm res}_{E,{\rm const}}^2
+},
+$$
+
+$$
+\sigma_\theta(T_e)
+=
+\sqrt{
+\left(
+{\rm res}_{\theta,{\rm thr}}
+\sqrt{\frac{E_{\rm thr}}{T_e}}
+\right)^2
++
+{\rm res}_{\theta,{\rm const}}^2
+},
+$$
+
+where:
+
+- $T_e$ is the recoil-electron kinetic energy
+- $E_{\rm thr}$ is the 1 mm range threshold for that gas
+- ${\rm res}_{E,{\rm thr}}$ is the fractional energy resolution at threshold
+- ${\rm res}_{E,{\rm const}}$ is the constant fractional energy-resolution floor
+- ${\rm res}_{\theta,{\rm thr}}$ is the angular resolution in degrees at threshold
+- ${\rm res}_{\theta,{\rm const}}$ is the constant angular-resolution floor in degrees
+
+This makes the response automatically adapt to the gas under study.
+
+The current checked-in config uses:
+
+- `energy_resolution_at_threshold_frac = 0.3`
+- `energy_resolution_constant_frac = 0.0`
+- `angular_resolution_at_threshold_deg = 20`
+- `angular_resolution_constant_deg = 0.0`
+
+so at the threshold energy of a given gas the code assumes:
+
+- $\sigma_E/E = 30\%$
+- $\sigma_\theta = 20^\circ$
+
+and at high recoil energy the resolutions improve without a nonzero asymptotic
+floor, because the constant terms are currently zero.
+
+If nonzero floors are desired, the same config file can be changed for example to:
+
+- `energy_resolution_constant_frac = 0.02`
+- `angular_resolution_constant_deg = 5.0`
+
+in which case the high-energy behavior asymptotes to those constant terms.
+
+---
+
+### Reconstruction formulas
+
+The script uses the same elastic-scattering kinematics already introduced in
+`EnergywithPerformance.py`.
+
+#### Energy-only reconstruction
+
+If only the recoil energy is measured, the script reconstructs neutrino energy
+using the minimum kinematically allowed neutrino energy:
+
+$$
+E_\nu^{\rm reco,\,E}
+=
+\frac{1}{2}
+\left(
+T_e + \sqrt{T_e^2 + 2m_e T_e}
+\right).
+$$
+
+This is the usual non-directional estimator.
+
+#### Energy + direction reconstruction
+
+If both recoil energy and recoil angle are measured, the script reconstructs
+neutrino energy from
+
+$$
+E_\nu^{\rm reco,\,E+\theta}
+=
+\frac{m_e T_e}{p_e\cos\theta_e - T_e},
+$$
+
+with
+
+$$
+p_e = \sqrt{T_e^2 + 2m_e T_e}.
+$$
+
+This is the directional estimator.
+
+So the script directly compares the non-directional and directional neutrino-energy
+reconstruction strategies for the same accepted event sample.
+
+---
+
+### Propagated uncertainties
+
+The new implementation uses **error propagation** rather than event-by-event
+Monte Carlo sampling.
+
+For each accepted recoil-electron energy $T_e$, the code first builds the recoil
+energy resolution:
+
+$$
+\sigma_T = T_e \frac{\sigma_E}{E}(T_e).
+$$
+
+Then it propagates that detector response to the neutrino-energy estimator.
+
+#### Energy-only case
+
+The non-directional estimator depends only on $T_e$, so the propagated neutrino-energy
+uncertainty is
+
+$$
+\sigma_{E_\nu}^{(E)}
+\approx
+\left|
+\frac{\partial E_\nu^{\rm reco,\,E}}{\partial T_e}
+\right|
+\sigma_T.
+$$
+
+So every accepted $(E_\nu, T_e)$ configuration contributes to the reconstructed
+spectrum with:
+
+- mean equal to $E_\nu^{\rm reco,\,E}(T_e)$
+- width equal to $\sigma_{E_\nu}^{(E)}$
+
+#### Energy + direction case
+
+For the directional estimator, both recoil energy and recoil angle contribute
+to the reconstructed neutrino-energy error:
+
+$$
+\sigma_{E_\nu}^{(E+\theta)}
+\approx
+\sqrt{
+\left(
+\frac{\partial E_\nu^{\rm reco,\,E+\theta}}{\partial T_e}
+\sigma_T
+\right)^2
++
+\left(
+\frac{\partial E_\nu^{\rm reco,\,E+\theta}}{\partial \theta_e}
+\sigma_\theta
+\right)^2
+},
+$$
+
+with $\sigma_\theta$ converted to radians inside the code.
+
+At the true elastic-scattering kinematics, the directional estimator is centered
+on the true neutrino energy, so in this case each accepted $(E_\nu, T_e)$
+configuration contributes with:
+
+- mean equal to the true $E_\nu$
+- width equal to $\sigma_{E_\nu}^{(E+\theta)}$
+
+This gives a deterministic reconstructed-spectrum estimate for the same response
+model, without the statistical noise of a Monte Carlo sample.
+
+---
+
+### Reconstruction algorithm
+
+For each gas entry, the code performs the following steps:
+
+1. read the gas density and convert it to an electron target density
+2. read the gas-dependent recoil window from the range table
+3. build the accepted true neutrino-energy spectrum
+4. loop over true neutrino energy and integrate the accepted recoil-energy range
+   using the rescaled $d\sigma/dT_e$
+5. for each accepted recoil-energy slice:
+   - compute the energy-only estimator and its propagated uncertainty
+   - compute the energy+direction estimator and its propagated uncertainty
+6. smear that slice into the reconstructed neutrino-energy axis with a Gaussian
+   bin-migration kernel
+7. sum all slices into a **coarse reconstructed-energy histogram**
+
+The coarse reconstructed bins are intentional: the propagated-smearing model is
+meant as a detector-level estimate of the reconstructed spectrum, not as a
+precision unfolding study. The reconstructed-energy axis is also chosen wider
+than the true accepted spectrum so the smeared low- and high-energy tails are
+retained in the output histograms.
+
+To keep the runtime manageable, the code first compresses the accepted true
+neutrino-energy support into a smaller set of representative rate-weighted
+points before applying the expensive smearing step. This is why the default
+`python3 recoNuEnergyComparison.py` run is substantially faster than a naive
+full-grid convolution over all flux samples.
+
+In the current WSL environment used for development, the default command
+
+```bash
+python3 recoNuEnergyComparison.py
+```
+
+runs in about 14 seconds with the checked-in defaults. Exact runtime will still
+depend on machine, Python environment, and whether the compression setting is
+changed.
+
+If maximum fidelity is preferred over speed, the full true-energy support can be
+used with:
+
+```bash
+python3 recoNuEnergyComparison.py --max-true-energy-points 0
+```
+
+which is slower because it disables the true-energy compression step.
+
+---
+
+### Output structure
+
+The script writes to:
+
+`solar_nu_reco_energy_comparison/`
+
+with one subfolder per gas entry.
+
+Each gas subfolder contains:
+
+- `reco_neutrino_energy_spectra.csv`
+- `reco_neutrino_energy_spectra.png`
+
+The root output folder contains:
+
+- `reco_neutrino_energy_summary.csv`
+
+The per-gas spectrum CSV stores coarse reconstructed-energy bins with:
+
+- the bin edges and bin centers
+- the true accepted rate per bin
+- the estimated reconstructed rate per bin for energy only
+- the estimated reconstructed rate per bin for energy + direction
+- the corresponding differential spectra in units of s$^{-1}$ MeV$^{-1}$
+
+The root summary CSV stores, for each gas:
+
+- the recoil window used
+- the detector geometry used
+- the response parameters used
+- the true-energy compression setting used
+- the total accepted true rate
+- the total estimated reconstructed rate for energy only
+- the total estimated reconstructed rate for energy + direction
+- the per-gas output subdirectory name
+
+In practice, the energy-only total reconstructed rate is usually almost equal to
+the accepted true rate, while the directional total can be slightly lower if
+some propagated Gaussian tails extend outside the finite reconstructed-energy
+range written by the script.
+
+---
+
+### Meaning of the main plots
+
+#### `reco_neutrino_energy_spectra.png`
+
+- the true accepted neutrino-energy spectrum
+- the estimated reconstructed spectrum using energy only
+- the estimated reconstructed spectrum using energy + direction
+
+This is the key plot of the script. It shows how the accepted truth spectrum is
+distorted by the detector response under the two reconstruction assumptions.
+
+---
+
+### Relation to the rest of the repository
+
+The reconstruction script depends on the earlier stages of the pipeline:
+
+- `plotFluxes.py` supplies the flavor-separated solar-neutrino flux
+- `scatteringPlots.py` supplies the underlying scattering model and constants
+- `gasTargetRates.py` defines the accepted detector-level recoil window logic
+- `EnergywithPerformance.py` supplies the neutrino-energy reconstruction formulas
+- `DetectorNumbers/electron_range_energy_table.csv` supplies the gas-dependent
+  threshold energy
+
+So `recoNuEnergyComparison.py` is best thought of as the **detector-response and
+reconstructed-spectrum layer** on top of the accepted gas-target rate model.
+
+---
 
 ## `EnergywithPerformance.py`
 

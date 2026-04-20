@@ -2,9 +2,14 @@ Calcoli.*
 *.png
 solar_neutrino_tables
 solar_nu_e_plots
+solar_neutrino_fluxes
 *.csv
 solar_nu_e_plots_by_flavor
+detector_response_outputs
+__pycache__/
 GarfieldSim/build
 GarfieldSim/plots
 GarfieldSim/tables
 ~$Calcoli.xlsx
+solar_nu_gas_target_rates
+solar_nu_reco_energy_comparison
