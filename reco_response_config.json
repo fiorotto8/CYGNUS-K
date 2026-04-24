@@ -4,5 +4,5 @@
   "energy_resolution_constant_frac": 0.1,
   "angular_resolution_at_threshold_deg": 20.0,
   "angular_resolution_constant_deg": 5,
-  "reco_energy_bins": 200
+  "reco_energy_bins": 100
 }

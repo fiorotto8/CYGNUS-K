@@ -82,27 +82,18 @@ def refine_minimum_with_quadratic(e_vals, y_vals):
 	return e_refined, y_refined, True
 
 
-def main():
-	parser = argparse.ArgumentParser(
-		description="Read Garfield gas table, plot transport quantities, and report diffusion values."
-	)
-	parser.add_argument(
-		"gasfile",
-		help="Path to the .gas file (for example: tables/heCf4_60-40_1000mbar20C.gas)",
-	)
-	args = parser.parse_args()
-
-	gas_file = Path(args.gasfile)
+def process_gas_file(gas_file, out_dir):
 	if not gas_file.exists():
-		raise FileNotFoundError(f"Gas file not found: {gas_file}")
+		print(f"Gas file not found: {gas_file}")
+		return
 
 	table_name = gas_file.stem
-	out_dir = Path("plots")
-	out_dir.mkdir(parents=True, exist_ok=True)
+	print(f"\n=== Processing {gas_file} ===")
 
 	gas = ROOT.Garfield.MediumMagboltz()
 	if not gas.LoadGasFile(str(gas_file)):
-		raise RuntimeError(f"Could not load gas file: {gas_file}")
+		print(f"Could not load gas file: {gas_file}")
+		return
 
 	gas.PrintGas()
 
@@ -221,5 +212,41 @@ def main():
 		print(f"Saved transport values to {csv_path}")
 
 
+def main():
+	parser = argparse.ArgumentParser(
+		description="Read Garfield gas table, plot transport quantities, and report diffusion values."
+	)
+	parser.add_argument(
+		"gasfile",
+		nargs="?",
+		help="Path to the .gas file (for example: tables/heCf4_60-40_1000mbar20C.gas)",
+	)
+	parser.add_argument(
+		"--all",
+		action="store_true",
+		help="Override single-file mode and run the full pipeline for all .gas files in tables/.",
+	)
+	args = parser.parse_args()
+
+	out_dir = Path("plots")
+	out_dir.mkdir(parents=True, exist_ok=True)
+
+	if args.all:
+		tables_dir = Path("tables")
+		gas_files = sorted(tables_dir.glob("*.gas"))
+		if not gas_files:
+			print(f"No .gas files found in {tables_dir}")
+			return
+		for gas_file in gas_files:
+			process_gas_file(gas_file, out_dir)
+		return
+
+	if not args.gasfile:
+		raise ValueError("Provide a gasfile path or use --all.")
+
+	process_gas_file(Path(args.gasfile), out_dir)
+
+
 if __name__ == "__main__":
+
 	main()

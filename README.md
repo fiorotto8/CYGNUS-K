@@ -193,9 +193,7 @@ $$
 and then computes
 
 $$
-n_e
-=
-\rho
+n_e = \rho
 \frac{N_A}{\langle M \rangle}
 \langle Z \rangle,
 $$
@@ -254,9 +252,7 @@ This answers:
 The implemented quantity is
 
 $$
-\frac{dR}{dE_\nu}
-=
-N_e
+\frac{dR}{dE_\nu} = N_e
 \sum_\alpha
 \phi_\alpha(E_\nu)\,
 \sigma_\alpha^{\rm acc}(E_\nu),
@@ -283,9 +279,7 @@ This answers:
 The code computes
 
 $$
-\frac{dR}{dT_e}
-=
-N_e
+\frac{dR}{dT_e} = N_e
 \sum_\alpha
 \int dE_\nu\,
 \phi_\alpha(E_\nu)\,
@@ -309,9 +303,7 @@ This answers:
 The implemented quantity is
 
 $$
-\frac{dR}{d\cos\theta_e}
-=
-N_e
+\frac{dR}{d\cos\theta_e} = N_e
 \sum_\alpha
 \int dE_\nu\,
 \phi_\alpha(E_\nu)\,
@@ -494,9 +486,7 @@ described by a threshold-scaled term plus a constant floor, both tied to the
 gas-dependent threshold energy:
 
 $$
-\frac{\sigma_E}{E}(T_e)
-=
-\sqrt{
+\frac{\sigma_E}{E}(T_e) = \sqrt{
 \left(
 {\rm res}_{E,{\rm thr}}
 \sqrt{\frac{E_{\rm thr}}{T_e}}
@@ -507,9 +497,7 @@ $$
 $$
 
 $$
-\sigma_\theta(T_e)
-=
-\sqrt{
+\sigma_\theta(T_e) = \sqrt{
 \left(
 {\rm res}_{\theta,{\rm thr}}
 \sqrt{\frac{E_{\rm thr}}{T_e}}
@@ -565,9 +553,7 @@ If only the recoil energy is measured, the script reconstructs neutrino energy
 using the minimum kinematically allowed neutrino energy:
 
 $$
-E_\nu^{\rm reco,\,E}
-=
-\frac{1}{2}
+E_\nu^{\rm reco,\,E} = \frac{1}{2}
 \left(
 T_e + \sqrt{T_e^2 + 2m_e T_e}
 \right).
@@ -581,9 +567,7 @@ If both recoil energy and recoil angle are measured, the script reconstructs
 neutrino energy from
 
 $$
-E_\nu^{\rm reco,\,E+\theta}
-=
-\frac{m_e T_e}{p_e\cos\theta_e - T_e},
+E_\nu^{\rm reco,\,E+\theta} = \frac{m_e T_e}{p_e\cos\theta_e - T_e},
 $$
 
 with
@@ -937,9 +921,7 @@ $$
 The plotted line height is therefore
 
 $$
-\left(\frac{d\Phi}{dE}\right)_{\rm line}
-=
-\frac{\Phi_{\rm line}}{\Delta E_{\rm line}},
+\left(\frac{d\Phi}{dE}\right)_{\rm line} = \frac{\Phi_{\rm line}}{\Delta E_{\rm line}},
 $$
 
 so that the integrated flux is preserved:
@@ -1009,9 +991,7 @@ which is the standard reduction used in solar-neutrino phenomenology when the th
 The effective 2-flavor survival probability in matter is evaluated in the adiabatic approximation:
 
 $$
-P_{ee}^{2\nu}(E)
-=
-\frac{1}{2}
+P_{ee}^{2\nu}(E) = \frac{1}{2}
 \left[
 1 + \cos 2\theta_{12}\,\cos 2\theta_{12}^m(E)
 \right].
@@ -1020,9 +1000,7 @@ $$
 Here $\theta_{12}^m$ is the matter mixing angle at production, defined through
 
 $$
-\cos 2\theta_{12}^m
-=
-\frac{\cos 2\theta_{12} - \beta}
+\cos 2\theta_{12}^m = \frac{\cos 2\theta_{12} - \beta}
 {\sqrt{(\cos 2\theta_{12}-\beta)^2 + \sin^2 2\theta_{12}}},
 $$
 
@@ -1035,9 +1013,7 @@ $$
 The matter potential is written in the code as
 
 $$
-A\,[{\rm eV}^2]
-=
-1.52\times 10^{-7}\,
+A\,[{\rm eV}^2] = 1.52\times 10^{-7}\,
 \left(n_e \,[{\rm mol/cm^3}]\right)\,
 \left(E_\nu\,[{\rm MeV}]\right).
 $$
@@ -1053,17 +1029,13 @@ $$
 $$
 
 $$
-\phi_{\nu_\mu}(E) + \phi_{\nu_\tau}(E)
-=
-\left[1-P_{ee}(E)\right]\phi_{\rm source}(E).
+\phi_{\nu_\mu}(E) + \phi_{\nu_\tau}(E) = \left[1-P_{ee}(E)\right]\phi_{\rm source}(E).
 $$
 
 In the default implementation, the non-electron component is split equally:
 
 $$
-\phi_{\nu_\mu}(E)=\phi_{\nu_\tau}(E)
-=
-\frac{1-P_{ee}(E)}{2}\,\phi_{\rm source}(E).
+\phi_{\nu_\mu}(E)=\phi_{\nu_\tau}(E) = \frac{1-P_{ee}(E)}{2}\,\phi_{\rm source}(E).
 $$
 
 This corresponds to the choice `equal_mu_tau=True`.
@@ -1217,16 +1189,7 @@ For solar neutrinos, only neutrino channels are relevant, so in practice:
 To describe the angular shape of the scattered electron, the script starts from the Standard Model tree-level differential cross section with respect to the electron recoil kinetic energy $T$:
 
 $$
-\frac{d\sigma}{dT}
-=
-\frac{2G_F^2 m_e}{\pi}
-\left[
-g_L^2
-+
-g_R^2\left(1-\frac{T}{E_\nu}\right)^2
--
-g_L g_R \frac{m_e T}{E_\nu^2}
-\right].
+\frac{d\sigma}{dT} = \frac{2G_F^2 m_e}{\pi} \left[ g_L^2 + g_R^2\left(1-\frac{T}{E_\nu}\right)^2 - g_L g_R \frac{m_e T}{E_\nu^2} \right].
 $$
 
 Here:
@@ -1264,9 +1227,7 @@ This difference reflects the fact that $\nu_e e^-$ scattering receives both char
 For elastic scattering of a neutrino on an electron initially at rest, the maximum allowed recoil energy is
 
 $$
-T_{\max}(E_\nu)
-=
-\frac{2E_\nu^2}{m_e + 2E_\nu}.
+T_{\max}(E_\nu) = \frac{2E_\nu^2}{m_e + 2E_\nu}.
 $$
 
 This defines the physical range of the recoil electron kinetic energy.
@@ -1274,9 +1235,7 @@ This defines the physical range of the recoil electron kinetic energy.
 The script also uses the inverse relation giving the minimum neutrino energy required to produce a recoil $T$:
 
 $$
-E_\nu^{\min}(T)
-=
-\frac{1}{2}
+E_\nu^{\min}(T) = \frac{1}{2}
 \left(
 T + \sqrt{T^2 + 2m_e T}
 \right).
@@ -1291,27 +1250,21 @@ To obtain the angular distribution of the outgoing electron, the script uses the
 Writing $c=\cos\theta_e$, the implemented formula is
 
 $$
-T(E_\nu,c)
-=
-\frac{2m_e E_\nu^2 c^2}
+T(E_\nu,c) = \frac{2m_e E_\nu^2 c^2}
 {(E_\nu+m_e)^2 - E_\nu^2 c^2}.
 $$
 
 The Jacobian for the change of variable from $T$ to $\cos\theta_e$ is
 
 $$
-\frac{dT}{d\cos\theta_e}
-=
-\frac{4m_e E_\nu^2 (E_\nu+m_e)^2 \cos\theta_e}
+\frac{dT}{d\cos\theta_e} = \frac{4m_e E_\nu^2 (E_\nu+m_e)^2 \cos\theta_e}
 {\left[(E_\nu+m_e)^2 - E_\nu^2 \cos^2\theta_e\right]^2}.
 $$
 
 The differential cross section in angle is then obtained as
 
 $$
-\frac{d\sigma}{d\cos\theta_e}
-=
-\frac{d\sigma}{dT}
+\frac{d\sigma}{d\cos\theta_e} = \frac{d\sigma}{dT}
 \frac{dT}{d\cos\theta_e}.
 $$
 
@@ -1324,9 +1277,7 @@ This gives the **shape** of the electron recoil angular distribution.
 The script uses the Standard Model formula above only for the **shape** of the angular distribution. Since the total rate is normalized to the simpler approximate cross sections, the angular differential cross section is rescaled so that its integral matches the chosen total cross section:
 
 $$
-\left(\frac{d\sigma}{d\cos\theta_e}\right)_{\mathrm{rescaled}}
-=
-\left(\frac{d\sigma}{d\cos\theta_e}\right)_{\mathrm{SM}}
+\left(\frac{d\sigma}{d\cos\theta_e}\right)_{\mathrm{rescaled}} = \left(\frac{d\sigma}{d\cos\theta_e}\right)_{\mathrm{SM}}
 \,
 \frac{\sigma_{\mathrm{approx}}(E_\nu)}
 {\int d(\cos\theta_e)\,
@@ -1347,9 +1298,7 @@ In this way:
 For a single electron target, the expected contribution from one neutrino-energy bin is
 
 $$
-R_i
-=
-\phi(E_i)\,\sigma(E_i)\,\Delta E_i,
+R_i=  \phi(E_i)\,\sigma(E_i)\,\Delta E_i,
 $$
 
 where:
@@ -1381,9 +1330,7 @@ $$
 The total rate per bin is
 
 $$
-R_i^{\mathrm{tot}}
-=
-R_i^{(\nu_e)}
+R_i^{\mathrm{tot}} = R_i^{(\nu_e)}
 +
 R_i^{(\nu_\mu)}
 +
@@ -1397,9 +1344,7 @@ $$
 The script also computes the angular recoil rate by integrating over the full neutrino spectrum:
 
 $$
-\frac{dR}{d\cos\theta_e}
-=
-\int dE_\nu\,
+\frac{dR}{d\cos\theta_e} = \int dE_\nu\,
 \phi(E_\nu)\,
 \frac{d\sigma}{d\cos\theta_e}(E_\nu).
 $$
@@ -1430,9 +1375,7 @@ $$
 Finally, the script constructs a normalized angular distribution, representing the probability density for the recoil direction given that one interaction has occurred:
 
 $$
-P(\cos\theta_e)
-=
-\frac{\dfrac{dR}{d\cos\theta_e}}
+P(\cos\theta_e) = \frac{\dfrac{dR}{d\cos\theta_e}}
 {\int d(\cos\theta_e)\,\dfrac{dR}{d\cos\theta_e}}.
 $$
 
@@ -1486,9 +1429,7 @@ This script is intended for detector studies and first-order estimates. The main
 To obtain rates for a real detector, the result must be multiplied by the total number of target electrons:
 
 $$
-R_{\mathrm{detector}}
-=
-N_e \times R_{\mathrm{single\ electron}}.
+R_{\mathrm{detector}}=  N_e \times R_{\mathrm{single\ electron}}.
 $$
 
 ---
