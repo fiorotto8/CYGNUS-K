@@ -31,7 +31,9 @@ At the moment, the detector-facing workflow is configured for:
 
 - a default detector volume of `200 m^3`
 - seven gas-target entries from `DetectorNumbers/GasDensities.csv`
-- range-based recoil thresholds from `DetectorNumbers/electron_range_energy_table.csv`
+- recoil thresholds from `DetectorNumbers/electron_range_energy_table.csv`,
+  with the low threshold raised when the 50 cm longitudinal diffusion summary
+  requires an electron range above 1 mm
 - a reconstruction model with threshold-scaled resolution terms plus optional
   constant resolution floors
 
@@ -134,7 +136,7 @@ becomes detector-specific.
 
 ### What it reads
 
-The script combines four ingredients:
+The script combines five ingredients:
 
 1. `solar_neutrino_fluxes/solar_neutrino_total_flux.csv`  
    flavor-separated solar-neutrino fluxes at Earth
@@ -143,9 +145,13 @@ The script combines four ingredients:
    gas densities for the supported mixtures and pressures
 
 3. `DetectorNumbers/electron_range_energy_table.csv`  
-   the recoil-energy thresholds derived from the range study
+   the 1 mm and 1 m recoil-energy thresholds derived from the range study
 
-4. `detector_geometry.json`  
+4. `DetectorNumbers/diffusion_2sigma_50cm_summary.csv`
+   the longitudinal-diffusion summary used to adjust the lower recoil threshold
+   for electric fields up to 2 kV/cm
+
+5. `detector_geometry.json`
    a simple detector volume configuration
 
 The current default geometry file is:
@@ -221,12 +227,25 @@ Instead it uses the range study to define the detectable recoil-energy window.
 
 For each gas entry:
 
-- the **lower recoil threshold** is the electron energy for which the range is 1 mm
+- the **baseline lower recoil threshold** is the electron energy for which the
+  range is 1 mm
 - the **upper recoil threshold** is the electron energy for which the range is 1 m
 
-These values are read from:
+The range values are read from:
 
 `DetectorNumbers/electron_range_energy_table.csv`
+
+The lower threshold is then checked against the longitudinal diffusion summary:
+
+`DetectorNumbers/diffusion_2sigma_50cm_summary.csv`
+
+For each gas and pressure, the code selects diffusion rows with electric field
+`<= 2 kV/cm`. If the largest `DL_2sigma(mm)` in those rows is larger than
+1 mm, the lower threshold is raised to the electron energy whose range equals
+that larger diffusion length. If `DL_2sigma(mm) <= 1 mm`, the 1 mm range
+threshold is kept.
+
+The upper threshold remains the 1 m range energy.
 
 So each gas has its own accepted recoil window:
 
@@ -365,6 +384,10 @@ The root folder also contains:
 The summary CSV records, for each gas:
 
 - the recoil window used
+- the effective lower-threshold range in mm
+- the baseline 1 mm lower-threshold energy
+- whether the lower threshold came from the 1 mm range or from `DL_2sigma`
+- the diffusion field point used for the threshold decision
 - the detector volume used
 - the electron density
 - the total number of target electrons
@@ -389,8 +412,17 @@ python3 gasTargetRates.py --volume-cm3 1000000
 
 which corresponds to 1 m$^3$.
 
+Optional diffusion-summary override:
+
+```bash
+python3 gasTargetRates.py --diffusion-csv DetectorNumbers/diffusion_2sigma_50cm_summary.csv
+```
+
 In practice, the script is usually meant to be run with the geometry config,
 because that keeps the detector dimensions explicit and reproducible.
+
+During execution the script prints a compact progress bar over the gas-target
+entries.
 
 The currently checked-in output directory `solar_nu_gas_target_rates/` was
 produced with this default geometry/configuration chain.
@@ -404,10 +436,12 @@ The gas-target script inherits the approximations of `plotFluxes.py` and
 
 - the neutrino flux model is still a simplified detector-oriented solar model
 - the total $\nu$-e cross sections still use the linear approximations in $E_\nu$
-- the recoil-window cut is based only on **electron range**
+- the recoil-window cut is still a hard threshold window based on electron range,
+  with the lower range optionally increased by the 50 cm longitudinal diffusion
+  criterion
 - no efficiency turn-on is modeled apart from the hard recoil window
 - no spatial fiducial inefficiency is included
-- no diffusion or readout smearing is folded into the accepted rate
+- no continuous diffusion or readout smearing is folded into the accepted rate
 
 So this script should be read as a detector-level **accepted-rate estimate**, not
 as a full detector simulation.
@@ -465,11 +499,13 @@ The current configuration defines:
 
 In addition, the script has a command-line option
 
+- `--diffusion-csv`
 - `--t-grid-points`
 - `--max-true-energy-points`
 
 which set:
 
+- which diffusion summary is used for the low-threshold adjustment
 - how finely the accepted recoil-energy interval is integrated for each true
   neutrino-energy sample
 - how many representative true-energy support points are kept before the
@@ -483,7 +519,7 @@ accepted spectrum accurately enough for this detector-level study.
 
 The key feature is that both the energy resolution and the angular resolution are
 described by a threshold-scaled term plus a constant floor, both tied to the
-gas-dependent threshold energy:
+gas-dependent final lower-threshold energy:
 
 $$
 \frac{\sigma_E}{E}(T_e) = \sqrt{
@@ -510,7 +546,8 @@ $$
 where:
 
 - $T_e$ is the recoil-electron kinetic energy
-- $E_{\rm thr}$ is the 1 mm range threshold for that gas
+- $E_{\rm thr}$ is the final lower recoil threshold for that gas, after the
+  1 mm range threshold has been checked against the 50 cm diffusion criterion
 - ${\rm res}_{E,{\rm thr}}$ is the fractional energy resolution at threshold
 - ${\rm res}_{E,{\rm const}}$ is the constant fractional energy-resolution floor
 - ${\rm res}_{\theta,{\rm thr}}$ is the angular resolution in degrees at threshold
@@ -657,7 +694,8 @@ model, without the statistical noise of a Monte Carlo sample.
 For each gas entry, the code performs the following steps:
 
 1. read the gas density and convert it to an electron target density
-2. read the gas-dependent recoil window from the range table
+2. build the gas-dependent recoil window from the range table and the
+   diffusion-summary threshold rule
 3. build the accepted true neutrino-energy spectrum
 4. loop over true neutrino energy and integrate the accepted recoil-energy range
    using the rescaled $d\sigma/dT_e$
@@ -699,6 +737,15 @@ python3 recoNuEnergyComparison.py --max-true-energy-points 0
 
 which is slower because it disables the true-energy compression step.
 
+The diffusion summary can also be overridden explicitly:
+
+```bash
+python3 recoNuEnergyComparison.py --diffusion-csv DetectorNumbers/diffusion_2sigma_50cm_summary.csv
+```
+
+The script also prints a compact progress bar over the gas-target entries while
+the reconstructed spectra are being built.
+
 ---
 
 ### Output structure
@@ -729,6 +776,10 @@ The per-gas spectrum CSV stores coarse reconstructed-energy bins with:
 The root summary CSV stores, for each gas:
 
 - the recoil window used
+- the effective lower-threshold range in mm
+- the baseline 1 mm lower-threshold energy
+- whether the lower threshold came from the 1 mm range or from `DL_2sigma`
+- the diffusion field point used for the threshold decision
 - the detector geometry used
 - the response parameters used
 - the true-energy compression setting used
@@ -766,7 +817,9 @@ The reconstruction script depends on the earlier stages of the pipeline:
 - `gasTargetRates.py` defines the accepted detector-level recoil window logic
 - `EnergywithPerformance.py` supplies the neutrino-energy reconstruction formulas
 - `DetectorNumbers/electron_range_energy_table.csv` supplies the gas-dependent
-  threshold energy
+  range thresholds
+- `DetectorNumbers/diffusion_2sigma_50cm_summary.csv` supplies the 50 cm
+  diffusion values used to raise the low threshold when needed
 
 So `recoNuEnergyComparison.py` is best thought of as the **detector-response and
 reconstructed-spectrum layer** on top of the accepted gas-target rate model.

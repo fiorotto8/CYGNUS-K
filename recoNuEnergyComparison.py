@@ -38,18 +38,21 @@ import pandas as pd
 import scatteringPlots as sp
 from EnergywithPerformance import neutrino_energy_from_Te_theta, neutrino_energy_min
 from gasTargetRates import (
+    DEFAULT_DIFFUSION_CSV,
     DEFAULT_FLUX_CSV,
     DEFAULT_GAS_CSV,
     DEFAULT_GEOMETRY_CONFIG,
     DEFAULT_RANGE_CSV,
     PLOT_DPI,
+    ProgressBar,
     electron_density_cm3,
-    find_recoil_window_keV,
     gas_entry_label,
     gas_entry_slug,
+    read_diffusion_summary_table,
     read_detector_geometry_config,
     read_gas_density_table,
     read_recoil_window_table,
+    resolve_recoil_window_keV,
     sigma_accepted_rescaled,
     sigma_total_sm_from_dT,
 )
@@ -119,6 +122,14 @@ def parse_args() -> argparse.Namespace:
         "--range-csv",
         default=str(DEFAULT_RANGE_CSV),
         help="Recoil-energy threshold table",
+    )
+    parser.add_argument(
+        "--diffusion-csv",
+        default=str(DEFAULT_DIFFUSION_CSV),
+        help=(
+            "Diffusion summary CSV used to raise the low-energy threshold when "
+            "DL_2sigma exceeds 1 mm for electric fields <= 2 kV/cm"
+        ),
     )
     parser.add_argument(
         "--geometry-config",
@@ -615,6 +626,7 @@ def main() -> int:
     flux_csv = Path(args.flux_csv)
     gas_csv = Path(args.gas_csv)
     range_csv = Path(args.range_csv)
+    diffusion_csv = Path(args.diffusion_csv)
     geometry_config = Path(args.geometry_config)
     response_config = Path(args.response_config)
     outdir = Path(args.outdir)
@@ -627,6 +639,7 @@ def main() -> int:
         (flux_csv, "Flux CSV"),
         (gas_csv, "Gas-density CSV"),
         (range_csv, "Recoil-window CSV"),
+        (diffusion_csv, "Diffusion summary CSV"),
         (geometry_config, "Geometry config"),
         (response_config, "Response config"),
     ]:
@@ -636,13 +649,16 @@ def main() -> int:
     flux_df = sp.read_flux_csv(flux_csv)
     gas_df = read_gas_density_table(gas_csv)
     recoil_window_df = read_recoil_window_table(range_csv)
+    diffusion_df = read_diffusion_summary_table(diffusion_csv)
     geometry = read_detector_geometry_config(geometry_config)
     response = read_response_config(response_config)
     volume_cm3 = float(args.volume_cm3) if args.volume_cm3 is not None else geometry.volume_cm3
     volume_source = "cli_override" if args.volume_cm3 is not None else "geometry_config"
 
     summary_rows = []
-    for _, row in gas_df.iterrows():
+    progress = ProgressBar(len(gas_df), prefix="Reconstructed spectra")
+    progress.update(0, "starting")
+    for gas_index, (_, row) in enumerate(gas_df.iterrows(), start=1):
         gas_name = row["Gas"]
         density_g_cm3 = float(row["density @ 293 K (g/cm3)"])
         pressure_atm = float(row["Pressure (atm)"])
@@ -650,15 +666,20 @@ def main() -> int:
         gas_slug = gas_entry_slug(gas_name, pressure_atm)
         gas_outdir = outdir / gas_slug
         gas_outdir.mkdir(parents=True, exist_ok=True)
+        progress.update(gas_index - 1, gas_label)
 
         for filename in OBSOLETE_GAS_OUTPUTS:
             remove_if_exists(gas_outdir / filename)
 
-        T_low_keV, T_high_keV = find_recoil_window_keV(
+        recoil_window = resolve_recoil_window_keV(
             gas_name,
             density_g_cm3,
+            pressure_atm,
             recoil_window_df=recoil_window_df,
+            diffusion_df=diffusion_df,
         )
+        T_low_keV = recoil_window.low_keV
+        T_high_keV = recoil_window.high_keV
         electron_density, molar_mass, electrons_per_mixture = electron_density_cm3(
             gas_name,
             density_g_cm3,
@@ -690,6 +711,12 @@ def main() -> int:
                 "density_g_cm3": density_g_cm3,
                 "recoil_window_min_keV": T_low_keV,
                 "recoil_window_max_keV": T_high_keV,
+                "recoil_window_min_range_mm": recoil_window.low_range_mm,
+                "base_recoil_window_min_keV_at_1mm": recoil_window.base_low_keV,
+                "threshold_source": recoil_window.threshold_source,
+                "diffusion_DL_2sigma_mm": recoil_window.diffusion_dl_2sigma_mm,
+                "diffusion_field_V_cm": recoil_window.diffusion_field_v_cm,
+                "diffusion_point": recoil_window.diffusion_point,
                 "detector_name": geometry.name,
                 "configured_volume_m3": geometry.volume_m3,
                 "volume_source": volume_source,
@@ -718,6 +745,8 @@ def main() -> int:
                 "output_subdir": gas_slug,
             }
         )
+        progress.update(gas_index, gas_label)
+    progress.close()
 
     summary_df = pd.DataFrame(summary_rows)
     summary_path = outdir / "reco_neutrino_energy_summary.csv"
@@ -725,6 +754,7 @@ def main() -> int:
 
     print(f"Read {len(flux_df)} flux points from: {flux_csv}")
     print(f"Read {len(gas_df)} gas entries from: {gas_csv}")
+    print(f"Read {len(diffusion_df)} diffusion rows from: {diffusion_csv}")
     print(
         f"Using detector geometry '{geometry.name}' = "
         f"{geometry.length_m:g} x {geometry.width_m:g} x {geometry.height_m:g} m^3 "
