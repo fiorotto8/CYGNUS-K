@@ -16,6 +16,9 @@ The most actively used parts of the repository right now are:
 - `scatteringPlots.py`
 - `gasTargetRates.py`
 - `recoNuEnergyComparison.py`
+- `generate_sn_fluence.py`
+- `supernovaGasTargetEvents.py`
+- `supernovaRecoNuEnergyComparison.py`
 - `detector_geometry.json`
 - `reco_response_config.json`
 
@@ -26,6 +29,9 @@ configuration in:
 - `solar_nu_e_plots_by_flavor/`
 - `solar_nu_gas_target_rates/`
 - `solar_nu_reco_energy_comparison/`
+- `outputs/supernova_fluence/`
+- `supernova_nu_gas_target_events/`
+- `supernova_nu_reco_energy_comparison/`
 
 At the moment, the detector-facing workflow is configured for:
 
@@ -110,6 +116,9 @@ This repository contains small analysis tools for solar-neutrino fluxes, oscilla
 - `scatteringPlots.py`: computes and visualizes neutrino-electron scattering observables from the flux inputs.
 - `gasTargetRates.py`: rescales the single-electron scattering rates to the gas targets in `DetectorNumbers/GasDensities.csv` and writes differential rate tables in neutrino energy, recoil energy, and recoil direction.
 - `recoNuEnergyComparison.py`: estimates reconstructed neutrino-energy spectra for energy-only and energy+direction measurements using gas-dependent thresholds, propagated uncertainties, and coarse reconstructed-energy bins.
+- `generate_sn_fluence.py`: builds analytic, time-integrated supernova fluence spectra at Earth.
+- `supernovaGasTargetEvents.py`: applies the gas-target recoil-window workflow to flavor-separated supernova fluences and writes expected event-count spectra.
+- `supernovaRecoNuEnergyComparison.py`: estimates reconstructed supernova neutrino-energy spectra in counts for energy-only and energy+direction measurements.
 - `EnergywithPerformance.py`: compares directional vs non-directional detector response assumptions.
 - `GarfieldSim/`: Garfield/C++ and Python helpers for gas-mixture generation, transport studies, and table/plot production. 
 - `DetectorNumbers/`: tabulated gas densities and stopping powers for relevant mixtures, plus utilities for computing diffusion and range.
@@ -117,6 +126,131 @@ This repository contains small analysis tools for solar-neutrino fluxes, oscilla
 - `reco_response_config.json`: default reconstruction-response configuration shared by the reconstructed-spectrum workflow.
 
 Detailed descriptions for each code are reported below.
+
+## Supernova neutrino fluence and gas-target event tools
+
+The supernova workflow is parallel to the solar gas-target and reconstruction
+workflow, but the input normalization is different.
+
+For solar neutrinos:
+
+$$
+\phi(E_\nu)\ [{\rm cm}^{-2}\ {\rm s}^{-1}\ {\rm MeV}^{-1}]
+\longrightarrow
+R\ [{\rm s}^{-1}].
+$$
+
+For supernova neutrinos:
+
+$$
+\Phi(E_\nu)\ [{\rm cm}^{-2}\ {\rm MeV}^{-1}]
+\longrightarrow
+N\ [{\rm counts}].
+$$
+
+The supernova fluence is already time-integrated over the burst. The event
+tools therefore do **not** multiply by a 10 s burst duration when computing the
+expected signal counts. The optional duration is stored only to report a
+diagnostic average burst rate,
+
+$$
+\langle R \rangle = N / \Delta t_{\rm burst}.
+$$
+
+### Fluence generation
+
+The current implementation supports only the SN1987A-like analytic
+quasi-thermal benchmark. `generate_sn_fluence.py` writes it to:
+
+- `outputs/supernova_fluence/SN1987A_like/`
+
+The fluence CSV contains flavor-separated columns for:
+
+- `nue`
+- `anue`
+- one single heavy neutrino species, reused for `numu` and `nutau`
+- one single heavy antineutrino species, reused for `anumu` and `anutau`
+
+The previous M27 analytic proxy was removed because the 27 M_sun model used in
+Angloher/COSINUS is a numerical simulation, not a simple quasi-thermal analytic
+spectrum. A future implementation may add a true 27 M_sun model only by reading
+an external simulation table or SNEWPY/Nakazato/Garching model output.
+
+### Accepted gas-target supernova events
+
+`supernovaGasTargetEvents.py` reads the supernova fluence CSVs, applies the same
+gas-density, detector-volume, recoil-window, and diffusion-threshold logic used
+by `gasTargetRates.py`, and writes expected nu-e elastic-scattering counts.
+
+Default run:
+
+```bash
+python3 supernovaGasTargetEvents.py
+```
+
+Useful options:
+
+```bash
+python3 supernovaGasTargetEvents.py --models SN1987A_like
+python3 supernovaGasTargetEvents.py --fluence-root outputs/supernova_fluence
+python3 supernovaGasTargetEvents.py --volume-cm3 1000000
+```
+
+The output root is:
+
+`supernova_nu_gas_target_events/`
+
+Each model/gas subfolder contains:
+
+- `dN_dEnu.csv` and `dN_dEnu.png`
+- `dN_dTe.csv` and `dN_dTe.png`
+- `dN_dcosth.csv` and `dN_dcosth.png`
+
+Each model folder also contains:
+
+- `gas_target_event_summary.csv`
+- `gas_target_total_event_comparison.png`
+
+The root folder contains:
+
+- `all_models_event_summary.csv`
+
+The summary stores the total expected counts by flavor, the all-flavor count,
+the average-rate diagnostic, the target-electron count, and the final
+gas-dependent recoil window.
+
+### Reconstructed supernova neutrino energy
+
+`supernovaRecoNuEnergyComparison.py` mirrors `recoNuEnergyComparison.py`, but
+it reads the supernova fluence and writes count histograms instead of rates.
+It uses the same `reco_response_config.json` response model and compares:
+
+- energy-only reconstruction
+- energy + direction reconstruction
+
+Default run:
+
+```bash
+python3 supernovaRecoNuEnergyComparison.py
+```
+
+The output root is:
+
+`supernova_nu_reco_energy_comparison/`
+
+Each model/gas subfolder contains:
+
+- `reco_neutrino_energy_spectra.csv`
+- `reco_neutrino_energy_spectra.png`
+
+Each model folder contains `reco_neutrino_energy_summary.csv`, and the root
+folder contains `all_models_reco_energy_summary.csv`.
+
+The per-gas CSV stores the accepted true counts per reconstructed-energy bin,
+the energy-only reconstructed counts, the energy+direction reconstructed counts,
+and the corresponding differential spectra in counts MeV$^{-1}$.
+
+---
 
 ## `gasTargetRates.py`
 
