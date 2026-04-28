@@ -16,9 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import scatteringPlots as sp
-from EnergywithPerformance import neutrino_energy_from_Te_theta, neutrino_energy_min
-from gasTargetRates import (
+from detector_model import (
     DEFAULT_DIFFUSION_CSV,
     DEFAULT_GAS_CSV,
     DEFAULT_GEOMETRY_CONFIG,
@@ -33,6 +31,10 @@ from gasTargetRates import (
     read_gas_density_table,
     read_recoil_window_table,
     resolve_recoil_window_keV,
+)
+import scatteringPlots as sp
+from EnergywithPerformance import neutrino_energy_from_Te_theta, neutrino_energy_min
+from gasTargetRates import (
     sigma_accepted_rescaled,
 )
 from recoNuEnergyComparison import (

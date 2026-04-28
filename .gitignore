@@ -13,5 +13,9 @@ GarfieldSim/tables
 ~$Calcoli.xlsx
 solar_nu_gas_target_rates
 solar_nu_reco_energy_comparison
+supernova_fluence
+supernova_nu_gas_target_events
+supernova_nu_reco_energy_comparison
+outputs
 Papers
 CAD

@@ -27,6 +27,7 @@ Notes:
 
 from __future__ import annotations
 
+import argparse
 import math
 from pathlib import Path
 
@@ -194,12 +195,42 @@ def build_model_spectra(
     return df
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate analytic, time-integrated supernova neutrino fluence spectra."
+    )
+    parser.add_argument(
+        "--output-root",
+        default="supernova_fluence",
+        help="Output directory for generated model fluence CSVs and plots.",
+    )
+    parser.add_argument(
+        "--energy-max-mev",
+        type=float,
+        default=80.0,
+        help="Maximum neutrino energy in MeV for the generated grid.",
+    )
+    parser.add_argument(
+        "--energy-points",
+        type=int,
+        default=4000,
+        help="Number of points in the generated energy grid.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    output_root = Path("supernova_fluence") 
+    args = parse_args()
+    if args.energy_max_mev <= 0.01:
+        raise ValueError("--energy-max-mev must be greater than 0.01 MeV.")
+    if args.energy_points < 100:
+        raise ValueError("--energy-points must be at least 100.")
+
+    output_root = Path(args.output_root)
 
     # Energy grid.
     # Angloher/COSINUS Figure 2 shows 0--50 MeV.
-    energy_mev = np.linspace(0.01, 80.0, 4000)
+    energy_mev = np.linspace(0.01, args.energy_max_mev, args.energy_points)
 
     # -----------------------------
     # Model definitions

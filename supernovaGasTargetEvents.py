@@ -22,8 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import scatteringPlots as sp
-from gasTargetRates import (
+from detector_model import (
     DEFAULT_DIFFUSION_CSV,
     DEFAULT_GAS_CSV,
     DEFAULT_GEOMETRY_CONFIG,
@@ -38,6 +37,10 @@ from gasTargetRates import (
     read_gas_density_table,
     read_recoil_window_table,
     resolve_recoil_window_keV,
+)
+import scatteringPlots as sp
+from gasTargetRates import (
+    dsigma_dT_rescaled,
     sigma_accepted_rescaled,
 )
 
@@ -98,8 +101,8 @@ OUTPUT_SUFFIX = {
 
 def default_fluence_root() -> Path:
     candidates = [
-        REPO_ROOT / "outputs" / "supernova_fluence",
         REPO_ROOT / "supernova_fluence",
+        REPO_ROOT / "outputs" / "supernova_fluence",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -302,38 +305,8 @@ def convolved_recoil_energy_counts_per_electron(
     for E_i, fluence_i, dE_i in zip(E_MeV, fluence, dE):
         if fluence_i <= 0.0:
             continue
-        counts += fluence_i * sp_safe_dsigma_dT_rescaled(E_i, T_MeV, channel) * dE_i
+        counts += fluence_i * dsigma_dT_rescaled(E_i, T_MeV, channel) * dE_i
     return counts
-
-
-def sp_safe_dsigma_dT_rescaled(E_MeV: float, T_MeV: np.ndarray, channel: str) -> np.ndarray:
-    shape = sp.dsigma_dT_sm(E_MeV, T_MeV, channel=channel)
-    sigma_sm = sigma_total_sm_from_dT_scalar(E_MeV, channel)
-    sigma_target = sp.sigma_total_approx(np.array([E_MeV]), channel=channel)[0]
-    if sigma_sm <= 0.0 or sigma_target <= 0.0:
-        return np.zeros_like(T_MeV, dtype=float)
-    out = shape * (sigma_target / sigma_sm)
-    out[~np.isfinite(out)] = 0.0
-    out[out < 0.0] = 0.0
-    return out
-
-
-def sigma_total_sm_from_dT_scalar(E_MeV: float, channel: str) -> float:
-    E = float(E_MeV)
-    if E <= 0.0:
-        return 0.0
-    gL, gR = sp.couplings(channel)
-    prefactor_gev = 2.0 * (sp.GF_GEV**2) * (sp.M_E_MEV * 1.0e-3) / np.pi
-    prefactor = prefactor_gev * sp.GEV2_TO_CM2 / 1000.0
-    tmax = 2.0 * E**2 / (sp.M_E_MEV + 2.0 * E)
-    term = (
-        gL**2 * tmax
-        + gR**2 * (tmax - (tmax**2) / E + (tmax**3) / (3.0 * E**2))
-        - gL * gR * sp.M_E_MEV * (tmax**2) / (2.0 * E**2)
-    )
-    if not np.isfinite(term) or term <= 0.0:
-        return 0.0
-    return float(prefactor * term)
 
 
 def convolved_angular_counts_window_per_electron(
