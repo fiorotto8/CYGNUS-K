@@ -4,5 +4,13 @@
   "energy_resolution_constant_frac": 0.1,
   "angular_resolution_at_threshold_deg": 20.0,
   "angular_resolution_constant_deg": 5,
-  "reco_energy_bins": 100
+  "reco_energy_bins": 100,
+  "cevns": {
+    "enabled": true,
+    "nr_threshold_keV": 1.0,
+    "nr_max_keV": null,
+    "form_factor": "default",
+    "axial_model": "hoferichter_19f_fast",
+    "reco_energy_bins": 100
+  }
 }

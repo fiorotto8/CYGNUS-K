@@ -1,67 +1,95 @@
-# CYGNUS-K Directional Neutrino Research Sandbox
+# CYGNUS-K Neutrino Gas-Detector Sandbox
 
-This repository is a daily-use research sandbox for directional neutrino studies
-in gas detectors. It is not a polished public package. The current code supports
-first-pass calculations for solar-neutrino and supernova-neutrino elastic
-scattering on electrons, then scales those single-electron calculations to
-simple gas-target detector configurations.
+This repository is a research sandbox for first-pass CYGNUS-K neutrino studies
+in gas detectors. It connects solar neutrino fluxes, neutrino-electron
+scattering, gas-target normalization, supernova fluences, reconstructed
+neutrino-energy spectra, and optional CEvNS nuclear-recoil calculations.
 
-The repository is meant to stay simple: root-level scripts are the runnable
-entry points, while small shared modules hold repeated detector logic. Generated
-tables and plots may exist locally but are mostly ignored by git.
+The code is intended to make detector and target-scaling questions easy to
+inspect. It is not a full detector simulation, and several physics ingredients
+are deliberately simple or pending validation.
 
-## Purpose
+## What This Repository Computes
 
-The scientific workflow addressed here is:
+The supported workflows are:
 
-1. Build solar-neutrino source spectra and flavor-separated fluxes at Earth.
-2. Compute Standard Model shaped neutrino-electron scattering observables.
-3. Convert single-electron rates into accepted detector rates for gas targets.
-4. Estimate reconstructed neutrino-energy spectra with configurable recoil
-   energy and angular resolution.
-5. Repeat the detector-rate and reconstruction logic for time-integrated
-   supernova fluence spectra.
-6. Use Garfield/Magboltz gas transport outputs and stopping-power tables to set
-   detector-motivated recoil windows.
+- Solar neutrino flux generation and flavor splitting at Earth.
+- Standard Model neutrino-electron scattering on gas targets.
+- Gas-target accepted rates using gas densities, detector volume, electron
+  ranges, and diffusion-derived recoil-window adjustments.
+- Supernova neutrino fluence generation with analytic quasi-thermal spectra.
+- Supernova gas-target event counts for neutrino-electron scattering.
+- Reconstructed neutrino-energy spectra for neutrino-electron scattering.
+- CEvNS nuclear-recoil rates and supernova counts for the explicit gas
+  constituents `12C`, `19F`, `1H`, and `4He`.
+- Optional CEvNS energy-only lower-bound spectra using `E_nu_min(T_N)`.
 
-The calculations are useful for detector-design comparisons and research
-iteration. They are not a precision oscillation or detector-response framework.
-Unclear or under-referenced physics choices are intentionally documented as
-validation gaps rather than hidden.
-
-## Quick Start
-
-The user workflow assumed by this cleanup is WSL:
-
-```bash
-cd /mnt/c/Users/david/MyDrive/WORK/CYGNUS-K
-python3 -m pip install -r requirements.txt
-```
-
-The main solar chain is:
+The main workflows remain simple root-level commands such as:
 
 ```bash
 python3 plotFluxes.py
-python3 scatteringPlots.py
-python3 gasTargetRates.py
-python3 recoNuEnergyComparison.py
+python3 gasTargetRates.py --enable-cevns
+python3 supernovaGasTargetEvents.py --enable-cevns
 ```
 
-The main supernova chain is:
+The cleanup keeps those commands as the stable user interface and centralizes
+shared CEvNS logic in helper modules instead of duplicating it in each driver.
 
-```bash
-python3 generate_sn_fluence.py
-python3 supernovaGasTargetEvents.py
-python3 supernovaRecoNuEnergyComparison.py
-```
+## Repository Structure
 
-To refresh the raw solar-neutrino input tables from the Bahcall SNdata archive:
+Root workflow scripts:
 
-```bash
-python3 downloadFluxes.py
-```
+- `plotFluxes.py`: builds solar source spectra, applies the compact solar
+  oscillation/flavor split, and writes flavor-separated flux CSVs.
+- `scatteringPlots.py`: computes and plots one-electron neutrino-electron
+  scattering spectra from the solar flux CSV.
+- `gasTargetRates.py`: computes solar gas-target neutrino-electron rates and,
+  when enabled, gas-total CEvNS rates.
+- `recoNuEnergyComparison.py`: computes solar reconstructed neutrino-energy
+  spectra for neutrino-electron scattering and optional CEvNS lower-bound
+  spectra.
+- `generate_sn_fluence.py`: generates analytic time-integrated supernova
+  fluence spectra.
+- `supernovaGasTargetEvents.py`: computes supernova gas-target
+  neutrino-electron event counts and optional gas-total CEvNS counts.
+- `supernovaDistanceGasScan.py`: scans supernova neutrino-electron plus CEvNS
+  counts/spectra from 0.5 to 10 kpc for every gas row by default, or for one
+  selected gas row with `--gas`.
+- `supernovaRecoNuEnergyComparison.py`: computes supernova reconstructed
+  neutrino-energy count spectra and optional CEvNS lower-bound count spectra.
 
-Typical output directories are:
+Shared modules:
+
+- `detector_model.py`: detector geometry, gas density parsing, mixture
+  normalization, electron target counts, CEvNS isotope target counts, electron
+  range windows, diffusion adjustments, progress bars, and plotting constants.
+- `cevns.py`: CEvNS isotope definitions, weak charges, Helm/pointlike vector
+  form factors, the `19F` HMS axial response, and vector plus pure-axial
+  differential cross sections.
+- `cevns_pipeline.py`: CEvNS config loading, CLI options, active
+  flux/fluence summing, recoil spectra, accepted `E_nu` spectra, gas-total
+  aggregation, isotope diagnostic outputs, lower-bound reconstruction, and
+  CEvNS plotting/saving helpers.
+- `EnergywithPerformance.py`: neutrino-energy estimator and response helper
+  functions used by the reconstructed-energy workflows.
+
+Inputs and local references:
+
+- `detector_geometry.json`: fiducial detector dimensions.
+- `reco_response_config.json`: reconstructed-energy response settings and the
+  CEvNS response block.
+- `DetectorNumbers/GasDensities.csv`: gas composition, pressure, and density
+  table.
+- `DetectorNumbers/electron_range_energy_table.csv`: electron range thresholds
+  produced by `DetectorNumbers/computePlotRanges.py`.
+- `DetectorNumbers/diffusion_2sigma_50cm_summary.csv`: diffusion summary
+  produced by `DetectorNumbers/computeDiffusion.py`.
+- `solar_neutrino_tables/`: local solar source spectra used by `plotFluxes.py`.
+- `Papers/CEvENS/`: local CEvNS references used for the implemented CEvNS
+  conventions.
+- `GarfieldSim/`: Garfield-related transport utilities and generated tables.
+
+Generated output folders are ignored by git and can be regenerated:
 
 - `solar_neutrino_fluxes/`
 - `solar_nu_e_plots_by_flavor/`
@@ -71,642 +99,630 @@ Typical output directories are:
 - `supernova_nu_gas_target_events/`
 - `supernova_nu_reco_energy_comparison/`
 
-Most generated CSV and PNG products are ignored by `.gitignore`. Rerun the
-workflow after changing configs, gas tables, or physics helpers.
+## Working Principle
 
-## Environment
+### Solar Fluxes
 
-Required for the Python analysis scripts:
-
-- Python 3
-- `numpy`
-- `pandas`
-- `matplotlib`
-- `requests`, only for downloading solar tables
-
-Installable Python requirements are listed in `requirements.txt`.
-
-Optional external dependencies:
-
-- ROOT and Garfield++/Magboltz are required only for the scripts in
-  `GarfieldSim/`.
-- The main solar and supernova Python analysis chain does not require ROOT or
-  Garfield at runtime if the derived detector tables already exist.
-
-## Repository Layout
-
-- `README.md`: this practical repository guide.
-- `requirements.txt`: minimal Python dependencies for the non-Garfield scripts.
-- `detector_model.py`: shared detector/gas helper module. It contains detector
-  geometry loading, gas electron-density conversion, recoil-window lookup,
-  diffusion-threshold adjustment, stopping-power range interpolation, labels,
-  slugs, and the small progress bar.
-- `plotFluxes.py`: builds solar-neutrino source and flavor fluxes.
-- `scatteringPlots.py`: computes single-electron neutrino-electron scattering
-  plots and is also used as the scattering helper module by later scripts.
-- `gasTargetRates.py`: scales solar single-electron scattering rates to gas
-  detector targets and writes accepted detector spectra.
-- `recoNuEnergyComparison.py`: estimates reconstructed solar neutrino-energy
-  spectra for energy-only and energy-plus-direction strategies.
-- `generate_sn_fluence.py`: builds analytic, time-integrated supernova fluence
-  spectra.
-- `supernovaGasTargetEvents.py`: computes accepted supernova event-count
-  spectra for gas targets.
-- `supernovaRecoNuEnergyComparison.py`: estimates reconstructed supernova
-  neutrino-energy count spectra.
-- `EnergywithPerformance.py`: standalone kinematic/performance plotting utility.
-- `downloadFluxes.py`: downloader entry point for solar-neutrino source tables.
-- `detector_geometry.json`: default rectangular detector geometry.
-- `reco_response_config.json`: default reconstruction response model.
-- `DetectorNumbers/`: gas densities, stopping powers, derived range and
-  diffusion tables, and small detector-number post-processing scripts.
-- `GarfieldSim/`: Garfield/ROOT macros, Python helpers, gas tables, and local
-  transport plots/tables.
-- `Papers/`: local reference material already present in the repository.
-- `CAD/`: detector/CAD side material, not used by the Python analysis chain.
-
-## Current Default Configuration
-
-`detector_geometry.json` defines a rectangular fiducial volume:
+`plotFluxes.py` loads local solar source spectra, normalizes each source to the
+hard-coded source totals in the script, and interpolates them onto a common
+energy grid. It writes:
 
 ```text
-length = 2 m
-width  = 10 m
-height = 10 m
-V      = 200 m^3 = 2.0e8 cm^3
+solar_neutrino_fluxes/solar_neutrino_total_flux.csv
 ```
 
-`DetectorNumbers/GasDensities.csv` currently lists seven gas targets:
-
-- CF4 at 1, 3, and 10 atm
-- HeCF4(60% He 40% CF4) at 1 atm
-- HeCF4CH4(58% He 37% CF4 5% CH4) at 1, 0.5, and 0.1 atm
-
-`reco_response_config.json` currently uses:
-
-```text
-energy_resolution_at_threshold_frac = 0.3
-energy_resolution_constant_frac     = 0.1
-angular_resolution_at_threshold_deg = 20.0
-angular_resolution_constant_deg     = 5.0
-reco_energy_bins                    = 100
-```
-
-The response model combines a threshold-scaled term with a constant floor.
-
-## Workflow Overview
-
-### Solar Workflow
-
-1. `downloadFluxes.py` optionally refreshes raw source spectral tables in
-   `solar_neutrino_tables/`.
-2. `plotFluxes.py` reads those source tables, normalizes them to hard-coded
-   total solar-neutrino fluxes, applies a minimal MSW-LMA survival model, and
-   writes `solar_neutrino_fluxes/solar_neutrino_total_flux.csv`.
-3. `scatteringPlots.py` reads the flavor flux CSV and computes one-electron
-   scattering cross sections, rate-per-energy-bin plots, and angular spectra.
-4. `gasTargetRates.py` reads the solar flux CSV, gas densities, stopping-power
-   thresholds, diffusion summary, and detector geometry. It computes accepted
-   detector-level spectra in `E_nu`, `T_e`, and `cos(theta_e)`.
-5. `recoNuEnergyComparison.py` uses the same accepted recoil windows and gas
-   targets, then smears accepted true event rates into reconstructed neutrino
-   energy bins for energy-only and energy-plus-direction assumptions.
-
-### Supernova Workflow
-
-1. `generate_sn_fluence.py` writes analytic time-integrated fluence spectra in
-   `supernova_fluence/`.
-2. `supernovaGasTargetEvents.py` applies the gas-target recoil-window workflow
-   to the fluence inputs. Since the fluence is already time-integrated, outputs
-   are counts, not rates.
-3. `supernovaRecoNuEnergyComparison.py` mirrors the solar reconstruction script,
-   but smears accepted burst counts instead of steady-state rates.
-
-### Detector-Number Workflow
-
-1. `GarfieldSim/read.py` loads Garfield `.gas` files and writes selected
-   transport points to `GarfieldSim/plots/*_transport_points.csv`.
-2. `DetectorNumbers/computeDiffusion.py` converts Garfield diffusion
-   coefficients into 2-sigma widths over 50 cm drift.
-3. `DetectorNumbers/computePlotRanges.py` integrates stopping-power tables to
-   derive electron energies for 1 mm and 1 m ranges.
-4. `detector_model.py` combines the 1 mm range threshold with diffusion
-   information to set the accepted lower recoil threshold for each gas.
-
-## Physics And Mathematical Model
-
-### Solar Source Fluxes
-
-For each continuum source, `plotFluxes.py` treats the input table as a spectral
-shape `s_i(E)` and normalizes it to a total source flux `Phi_i`:
-
-```math
-\frac{d\Phi_i}{dE}(E)
-=
-\Phi_i
-\frac{s_i(E)}{\int s_i(E')\,dE'} .
-```
-
-Units:
-
-- `E` is in MeV.
-- `Phi_i` is in cm^-2 s^-1.
-- `dPhi_i/dE` is in cm^-2 s^-1 MeV^-1.
-
-Line sources are represented as finite top-hat bins with width
-`LINE_BIN_WIDTH_MEV = 0.002`:
-
-```math
-\frac{d\Phi_{\rm line}}{dE} =
-\frac{\Phi_{\rm line}}{\Delta E}
-```
-
-inside the line bin and zero outside. The current checked-in table set does not
-include `be7_lineshape.dat`, so the default code treats both 7Be branches as
-finite-width line bins.
-
-For continuum tables whose first positive point lies above the global grid
-minimum, the code extends to `1e-3 MeV` with a matched low-energy law:
-
-```math
-\frac{d\Phi}{dE} \propto E^2 .
-```
-
-This is a practical interpolation/extrapolation choice and should be validated
-for precision work.
-
-### Solar Oscillation Approximation
-
-`plotFluxes.py` uses a compact adiabatic MSW-LMA approximation:
-
-```math
-P_{ee}^{3\nu}
-=
-\sin^4\theta_{13}
-+
-\cos^4\theta_{13} P_{ee}^{2\nu},
-```
-
-with
-
-```math
-P_{ee}^{2\nu}
-=
-\frac{1}{2}
-\left[
-1 + \cos(2\theta_{12})\cos(2\theta_{12}^m)
-\right],
-```
-
-and
-
-```math
-\cos(2\theta_{12}^m)
-=
-\frac{\cos(2\theta_{12})-\beta}
-{\sqrt{(\cos(2\theta_{12})-\beta)^2+\sin^2(2\theta_{12})}},
-\qquad
-\beta = \frac{A}{\Delta m_{21}^2}.
-```
-
-The matter potential is implemented as
-
-```math
-A[{\rm eV}^2] = 1.52\times 10^{-7}
-n_e[{\rm mol\,cm^{-3}}] E[{\rm MeV}].
-```
-
-Each solar source is assigned one effective production-region electron density
-from `NE_MOL_CM3` in `plotFluxes.py`. The code does not solve propagation
-through a full solar model. After computing `P_ee`, flavor splitting is:
-
-```math
-\phi_e = P_{ee}\phi_{\rm source},
-\qquad
-\phi_\mu = \phi_\tau =
-\frac{1-P_{ee}}{2}\phi_{\rm source}.
-```
-
-### Neutrino-Electron Cross Sections
-
-`scatteringPlots.py` defines simple linear total cross-section approximations:
-
-```math
-\sigma(E_\nu) = c_\alpha E_\nu ,
-```
-
-with `E_nu` in MeV and `sigma` in cm^2 [Supernova Neutrino Detection in a liquid Argon TPC](https://arxiv.org/pdf/hep-ph/0307222) and [Supernova Relic Neutrinos in Liquid Argon detectors](https://arxiv.org/pdf/hep-ph/0408031):
-
-| channel | coefficient `c_alpha` [cm^2 MeV^-1] |
-| --- | ---: |
-| `nu_e` | `9.20e-45` |
-| `anti_nu_e` | `3.83e-45` |
-| `nu_x` (`nu_mu`, `nu_tau`) | `1.57e-45` |
-| `anti_nu_x` | `1.29e-45` |
-
-The differential recoil-energy shape is the tree-level Standard Model form:
-
-```math
-\frac{d\sigma}{dT}
-=
-\frac{2G_F^2m_e}{\pi}
-\left[
-g_L^2
-+ g_R^2\left(1-\frac{T}{E_\nu}\right)^2
-- g_Lg_R\frac{m_eT}{E_\nu^2}
-\right],
-```
-
-with the code applying the GeV-to-cm^2 and GeV-to-MeV unit conversions.
-
-The couplings are:
-
-```text
-nu_e      : g_L =  1/2 + sin^2(theta_W), g_R =  sin^2(theta_W)
-anti_nu_e : g_L =  sin^2(theta_W),       g_R =  1/2 + sin^2(theta_W)
-nu_x      : g_L = -1/2 + sin^2(theta_W), g_R =  sin^2(theta_W)
-anti_nu_x : g_L =  sin^2(theta_W),       g_R = -1/2 + sin^2(theta_W)
-```
-
-Kinematic limits and conversions use:
-
-```math
-T_{\max}(E_\nu)
-=
-\frac{2E_\nu^2}{m_e+2E_\nu},
-```
-
-```math
-E_{\nu,\min}(T)
-=
-\frac{1}{2}
-\left[
-T+\sqrt{T^2+2m_eT}
-\right],
-```
-
-and for recoil angle `theta_e`,
-
-```math
-T(E_\nu,\cos\theta_e)
-=
-\frac{2m_eE_\nu^2\cos^2\theta_e}
-{(E_\nu+m_e)^2-E_\nu^2\cos^2\theta_e}.
-```
-
-The angular spectra are formed from the recoil-energy shape and the Jacobian
-`dT/dcos(theta_e)`, then rescaled so the integral matches the approximate
-linear total cross section. This hybrid normalization is an explicit repository
-convention.
-
-For accepted gas-target rates, `gasTargetRates.py` integrates the SM
-differential shape inside the accepted recoil window and applies that fraction
-to the approximate total cross section:
-
-```math
-\sigma_\alpha^{\rm acc}(E_\nu)
-=
-\sigma_\alpha^{\rm approx}(E_\nu)
-\frac{
-\int_{T_{\min}}^{\min(T_{\max},T_{\max}^{\rm gas})}
-(d\sigma_\alpha^{\rm SM}/dT)\,dT
-}{
-\int_0^{T_{\max}}(d\sigma_\alpha^{\rm SM}/dT)\,dT
-}.
-```
-
-### Gas Target Normalization
-
-`detector_model.py` treats gas-mixture fractions as molecular fractions. For
-species `i` with fraction `x_i`, molecular electron count `Z_i`, and molar mass
-`M_i`,
-
-```math
-\langle Z\rangle = \sum_i x_i Z_i,
-\qquad
-\langle M\rangle = \sum_i x_i M_i .
-```
-
-Given gas density `rho` in g/cm^3,
-
-```math
-n_e =
-\rho
-\frac{N_A}{\langle M\rangle}
-\langle Z\rangle ,
-```
-
-and for detector volume `V` in cm^3,
-
-```math
-N_e = n_e V .
-```
-
-The solar gas-target differential spectra are:
-
-```math
-\frac{dR}{dE_\nu}
-=
-N_e\sum_\alpha
-\phi_\alpha(E_\nu)\sigma_\alpha^{\rm acc}(E_\nu),
-```
-
-```math
-\frac{dR}{dT}
-=
-N_e\sum_\alpha\int dE_\nu\,
-\phi_\alpha(E_\nu)
-\frac{d\sigma_\alpha}{dT}(E_\nu,T),
-```
-
-and
-
-```math
-\frac{dR}{d\cos\theta_e}
-=
-N_e\sum_\alpha\int dE_\nu\,
-\phi_\alpha(E_\nu)
-\frac{d\sigma_\alpha}{d\cos\theta_e}.
-```
-
-Solar flux units make `R` a rate in s^-1. Supernova fluence units make the
-corresponding output a count.
-
-### Recoil Windows
-
-The accepted recoil window for each gas is derived from
-`DetectorNumbers/electron_range_energy_table.csv` and
-`DetectorNumbers/diffusion_2sigma_50cm_summary.csv` source [NIST](https://www.nist.gov/pml/stopping-power-range-tables-electrons-protons-and-helium-ions).
-
-The baseline lower threshold is the electron kinetic energy whose CSDA-like
-range is 1 mm. The upper threshold is the energy whose range is 1 m. The lower
-threshold is then raised if the largest longitudinal 2-sigma diffusion value at
-electric fields up to 2 kV/cm is larger than 1 mm:
-
-```math
-T_{\min}^{\rm gas}
-=
-T(R=\max[1\,{\rm mm},D_L^{2\sigma}]),
-\qquad
-T_{\max}^{\rm gas}=T(R=1\,{\rm m}).
-```
-
-The stopping-power range estimate used by `DetectorNumbers/computePlotRanges.py`
-is:
-
-```math
-R(E) = \int_0^E
-\frac{dE'}{\rho S_{\rm col}(E')},
-```
-
-where `S_col` is the collisional mass stopping power in MeV cm^2/g. The code
-uses a simple low-energy `1/E` stopping-power extrapolation below the first
-tabulated point.
-
-The diffusion summary uses Garfield diffusion coefficients `D` in sqrt(cm):
-
-```math
-2\sigma = 2D\sqrt{L},
-```
-
-with `L = 50 cm`. Outputs are also converted to mm.
-
-### Reconstruction Model
-
-The energy-only estimator uses the minimum neutrino energy compatible with a
-recoil kinetic energy:
-
-```math
-E_{\nu,\min}(T)
-=
-\frac{1}{2}
-\left[
-T+\sqrt{T^2+2m_eT}
-\right].
-```
-
-The directional estimator uses measured recoil kinetic energy and angle:
-
-```math
-E_\nu(T,\theta)
-=
-\frac{m_eT}{p_e\cos\theta - T},
-\qquad
-p_e = \sqrt{T^2+2m_eT}.
-```
-
-The response model in `reco_response_config.json` is:
-
-```math
-\frac{\sigma_E}{E}
-=
-\sqrt{
-\left(r_E\sqrt{\frac{T_{\rm thr}}{T}}\right)^2
-+ r_{E,0}^2
-},
-```
-
-```math
-\sigma_\theta
-=
-\sqrt{
-\left(r_\theta\sqrt{\frac{T_{\rm thr}}{T}}\right)^2
-+ r_{\theta,0}^2
-}.
-```
-
-`T_thr` is the gas-dependent lower accepted recoil threshold. The scripts
-propagate these uncertainties through the estimators and smear accepted true
-rates or counts into logarithmic reconstructed-energy bins. This is a fast
-Gaussian propagated-resolution model, not a full event-level detector
-simulation.
-
-### Supernova Fluence
-
-`generate_sn_fluence.py` implements the quasi-thermal fluence parameterization
-documented in its comments as coming from the [Neutrino flux sensitivity to the next galactic core-collapse supernova in COSINUS](https://iopscience.iop.org/article/10.1088/1475-7516/2025/03/037)
-sensitivity study:
-
-```math
-\frac{d\Phi_i}{dE}
-=
-\frac{\epsilon_i}{4\pi d^2}
-\frac{E^\alpha e^{-E/T_i}}
-{T_i^{\alpha+2}\Gamma(\alpha+2)},
-\qquad
-T_i = \frac{\langle E_i\rangle}{\alpha+1}.
-```
-
-Units:
-
-- `epsilon_i` is emitted energy per species, converted from erg to MeV.
-- `d` is distance in cm.
-- `dPhi_i/dE` is in cm^-2 MeV^-1.
-
-The current implementation contains only `SN1987A_like`:
-
-- distance `10 kpc`
-- `alpha = 3`
-- total emitted energy `3e53 erg`, equally shared among six species
-- average energies: `nu_e = 9 MeV`, `anti_nu_e = 12 MeV`, heavy flavors
-  `16 MeV`
-
-The numerical 27 solar-mass model mentioned in the code comments is not
-implemented because the repository does not contain its simulation table or a
-SNEWPY/Nakazato/Garching input. Adding such a model should be table-driven.
-
-Because the supernova input is time-integrated fluence, the detector outputs are
-counts:
-
-```math
-\Phi(E_\nu)\ [{\rm cm}^{-2}{\rm MeV}^{-1}]
-\longrightarrow
-N\ [{\rm counts}].
-```
-
-The optional burst duration in `supernovaGasTargetEvents.py` is used only for an
-average-rate diagnostic `N / Delta t`. It is not multiplied into the event
-count.
-
-## Code And Tool Reference
-
-| File | Purpose | Main inputs | Main outputs | Example |
-| --- | --- | --- | --- | --- |
-| `downloadFluxes.py` | Download solar source tables | remote Bahcall SNdata URLs | `solar_neutrino_tables/`, `manifest.csv` | `python3 downloadFluxes.py` |
-| `plotFluxes.py` | Build solar source and flavor fluxes | `solar_neutrino_tables/` | `solar_neutrino_fluxes/solar_neutrino_total_flux.csv`, flux plots | `python3 plotFluxes.py` |
-| `scatteringPlots.py` | One-electron nu-e scattering plots | solar flux CSV | `solar_nu_e_plots_by_flavor/` | `python3 scatteringPlots.py` |
-| `detector_model.py` | Shared detector/gas utilities | JSON configs, gas tables, range and diffusion summaries | imported helpers only | imported by driver scripts |
-| `gasTargetRates.py` | Solar gas-target rates | flux CSV, gas density, range, diffusion, geometry | `solar_nu_gas_target_rates/` | `python3 gasTargetRates.py` |
-| `recoNuEnergyComparison.py` | Solar reconstructed spectra | gas workflow inputs plus response config | `solar_nu_reco_energy_comparison/` | `python3 recoNuEnergyComparison.py` |
-| `generate_sn_fluence.py` | Analytic supernova fluence generation | built-in model parameters | `supernova_fluence/` | `python3 generate_sn_fluence.py` |
-| `supernovaGasTargetEvents.py` | Supernova gas-target event counts | fluence CSVs, gas workflow inputs | `supernova_nu_gas_target_events/` | `python3 supernovaGasTargetEvents.py` |
-| `supernovaRecoNuEnergyComparison.py` | Supernova reconstructed count spectra | fluence CSVs, gas workflow inputs, response config | `supernova_nu_reco_energy_comparison/` | `python3 supernovaRecoNuEnergyComparison.py` |
-| `EnergywithPerformance.py` | Standalone kinematic performance comparison | built-in example detector models | `enu_vs_te_different_theta.png`, `enu_vs_theta_fixed_te.png` | `python3 EnergywithPerformance.py` |
-| `DetectorNumbers/computePlotRanges.py` | Electron range and threshold table | gas densities, stopping powers | `electron_range_energy_table.csv`, `electron_ranges.png` | `python3 DetectorNumbers/computePlotRanges.py` |
-| `DetectorNumbers/computeDiffusion.py` | Diffusion summary over 50 cm | Garfield transport-point CSVs | `diffusion_2sigma_50cm_summary.csv`, comparison plot | `python3 DetectorNumbers/computeDiffusion.py` |
-| `GarfieldSim/read.py` | Read `.gas` files and export transport summaries | `GarfieldSim/tables/*.gas`, ROOT/Garfield | `GarfieldSim/plots/` | run inside a Garfield environment |
-
-## Validation And Sanity Checks
-
-There is not yet a formal test suite. Useful checks are:
-
-```bash
-python3 -m py_compile detector_model.py *.py DetectorNumbers/*.py GarfieldSim/*.py
-python3 DetectorNumbers/computePlotRanges.py
-python3 DetectorNumbers/computeDiffusion.py
-python3 plotFluxes.py
-python3 scatteringPlots.py
-python3 gasTargetRates.py --t-grid-points 80 --costh-grid-points 80 --outdir /tmp/cygnus_gas_smoke
-python3 recoNuEnergyComparison.py --t-grid-points 40 --max-true-energy-points 80 --outdir /tmp/cygnus_reco_smoke
-python3 generate_sn_fluence.py --output-root /tmp/cygnus_sn_fluence
-python3 supernovaGasTargetEvents.py --fluence-root /tmp/cygnus_sn_fluence --output-root /tmp/cygnus_sn_events_smoke --t-grid-points 80 --costh-grid-points 80
-python3 supernovaRecoNuEnergyComparison.py --fluence-root /tmp/cygnus_sn_fluence --output-root /tmp/cygnus_sn_reco_smoke --t-grid-points 40 --max-true-energy-points 80
-python3 EnergywithPerformance.py
-```
-
-The reduced grid commands are intended as smoke tests. Production plots should
-use the script defaults unless there is a reason to trade precision for speed.
-
-Internal consistency checks currently include:
-
-- input-column validation for the gas, recoil-window, diffusion, geometry, and
-  response config files;
-- positivity checks for detector geometry and response parameters;
-- rate/count comparisons between the accepted `E_nu` sum and the numerical
-  `T_e` or `cos(theta_e)` integrals in the gas-target summaries;
-- explicit tracking of the threshold source for each gas.
-
-## Extending The Repository
-
-Add a new solar source by:
-
-1. Adding or downloading its source spectrum into `solar_neutrino_tables/`.
-2. Adding a parser or using an existing parser in `plotFluxes.py`.
-3. Adding its total flux to `TOTAL_FLUX`.
-4. Adding an effective production density to `NE_MOL_CM3` if the MSW-LMA helper
-   should process it.
-5. Rerunning `plotFluxes.py` and downstream scripts.
-
-Add a new gas target by:
-
-1. Adding a row to `DetectorNumbers/GasDensities.csv`.
-2. Adding molecular composition data to `GAS_MIXTURES` in `detector_model.py`.
-3. Adding a stopping-power table and `STOPPING_POWER_FILES` entry.
-4. Producing or adding Garfield transport-point CSVs for diffusion matching.
-5. Rerunning `DetectorNumbers/computePlotRanges.py`,
-   `DetectorNumbers/computeDiffusion.py`, and the gas-target scripts.
-
-Add a new detector response by editing or copying `reco_response_config.json`.
-Keep all resolution terms non-negative and choose enough reconstructed-energy
-bins for the intended comparison.
-
-Add a new supernova model by writing a fluence CSV with:
+The output columns include:
 
 - `E_MeV`
-- `fluence_nue_cm-2_MeV-1`
-- `fluence_anue_cm-2_MeV-1`
-- either single-heavy-species columns
-  `fluence_nux_single_cm-2_MeV-1` and
-  `fluence_anux_single_cm-2_MeV-1`, or grouped heavy-flavor columns
-  `fluence_nux_group_numu_nutau_cm-2_MeV-1` and
-  `fluence_anux_group_anumu_anutau_cm-2_MeV-1`
+- `phi_total_cm-2_s-1_MeV-1`
+- `phi_nu_e_cm-2_s-1_MeV-1`
+- `phi_nu_mu_cm-2_s-1_MeV-1`
+- `phi_nu_tau_cm-2_s-1_MeV-1`
 
-Then run the supernova scripts with:
+The flavor split is a compact MSW-LMA style survival-probability model. It is
+adequate for this sandbox, but it is not a precision solar global-fit
+oscillation calculation.
 
-```bash
-python3 supernovaGasTargetEvents.py --fluence-root PATH --models all
-python3 supernovaRecoNuEnergyComparison.py --fluence-root PATH --models all
+### Neutrino-Electron Scattering
+
+`scatteringPlots.py`, `gasTargetRates.py`, and the reconstructed-energy scripts
+use Standard Model neutrino-electron scattering cross sections. The gas-target
+scripts integrate the flavor-separated flux or fluence over neutrino energy and
+scale per-electron rates/counts by the number of target electrons in the gas
+volume.
+
+The electron-recoil workflow uses a gas-dependent accepted electron-recoil
+window. The lower edge is based on the electron kinetic energy whose range is
+1 mm, then raised when the diffusion summary indicates that the largest
+longitudinal `2 sigma` diffusion value at low drift field exceeds 1 mm. The
+upper edge is based on a 1 m range. This recoil window is specific to the
+neutrino-electron analysis and is not reused for CEvNS.
+
+### Gas Normalization
+
+Gas normalization is handled in `detector_model.py`. The detector volume comes
+from `detector_geometry.json` unless a workflow receives `--volume-cm3`.
+
+For a gas entry with mass density `rho`, average molar mass `M`, and detector
+volume `V`, the total number of gas mixture units is:
+
+```text
+N_mixture = rho * V * N_A / M
 ```
 
-When adding a new cross-section or detector-response model, prefer introducing
-one small shared helper rather than adding another copy of the same formula to a
-driver script.
+Electron targets are obtained from the electron count per mixture unit. CEvNS
+isotope targets are obtained from the isotope count per mixture unit.
 
-## References Present In The Repository
+The gas mixtures currently supported in the target-count logic are:
 
-Only references already present or explicit in the code/comments are listed
-here:
+- `CF4`: `1 x 12C + 4 x 19F`
+- `CH4`: `1 x 12C + 4 x 1H`
+- `He`: `1 x 4He`
+- `HeCF4(60% He 40% CF4)`: `0.60 He + 0.40 CF4`
+- `HeCF4CH4(58% He 37% CF4 5% CH4)`: `0.58 He + 0.37 CF4 + 0.05 CH4`
 
-- `Papers/SuperK-2003.pdf` is stored locally.
-- `downloadFluxes.py` points to the Bahcall SNdata archive URLs used for solar
-  source tables.
-- `generate_sn_fluence.py` cites [Neutrino flux sensitivity to the next galactic core-collapse supernova in COSINUS](https://iopscience.iop.org/article/10.1088/1475-7516/2025/03/037), for the quasi-thermal fluence
-  parameterization and SN1987A-like benchmark.
-- `GarfieldSim/` assumes Garfield++/Magboltz gas tables and transport APIs.
+### Supernova Fluences
 
-Documentation gaps that require expert validation:
+`generate_sn_fluence.py` writes time-integrated fluence spectra. The supernova
+gas-target outputs are counts, not rates, because the input spectra have already
+been integrated over the burst.
 
-- The hard-coded total solar source flux values in `plotFluxes.py` need an
-  explicit local reference.
-- The effective production-region electron densities `NE_MOL_CM3` need an
-  explicit source or derivation.
-- The approximate total nu-e cross-section coefficients in `scatteringPlots.py`
-  need an explicit source.
-- The stopping-power input provenance should be documented beyond the file
-  names.
-- The detector response parameter choices in `reco_response_config.json` are
-  assumptions, not validated detector performance results.
+The supernova CEvNS convention sums all active neutrino and antineutrino
+fluence columns produced by the current fluence CSV convention:
 
-## Known Limitations And WIP Notes
+- `fluence_nue_cm-2_MeV-1`
+- `fluence_anue_cm-2_MeV-1`
+- either single heavy-flavor columns or grouped heavy-flavor columns, depending
+  on the CSV.
 
-- The solar oscillation treatment is a compact effective-density MSW-LMA model,
-  not full solar propagation.
-- The current 7Be default uses finite-width top-hat lines unless a
-  `be7_lineshape.dat` file is supplied.
-- The cross-section convention mixes a Standard Model differential shape with
-  approximate linear total cross sections. This is intentional for continuity
-  with earlier scripts but should be reviewed before precision use.
-- The gas target rates include only recoil-window acceptance. They do not include
-  detector efficiency, backgrounds, topology cuts, trigger behavior, or
-  time-dependent detector conditions.
-- Reconstruction uses propagated Gaussian uncertainties and coarse bins, not a
-  full detector simulation or event-level inference.
-- Gas mixture fractions are treated as molecular/volume fractions.
-- Range thresholds are CSDA-like estimates with a simple low-energy
-  extrapolation and no straggling model.
-- The supernova model set currently contains only one analytic SN1987A-like
-  benchmark.
-- Garfield scripts require an external ROOT/Garfield environment and are not
-  covered by the ordinary Python smoke tests.
-- Generated outputs in local ignored folders may be stale relative to code or
-  config changes. Rerun the workflow when in doubt.
+### Reconstructed and Lower-Bound Spectra
+
+For neutrino-electron scattering, `recoNuEnergyComparison.py` and
+`supernovaRecoNuEnergyComparison.py` compare reconstructed neutrino-energy
+spectra using the electron recoil energy and, where configured, angular
+information.
+
+For CEvNS there is no directionality in this repository. The CEvNS reconstructed
+product is an energy-only lower-bound spectrum. It maps a nuclear recoil energy
+`T_N` to the minimum neutrino energy compatible with that recoil:
+
+```text
+E_nu_min(T_N) = 1/2 * [T_N + sqrt(T_N^2 + 2 m_N T_N)]
+```
+
+with consistent units. This is not a true event-by-event neutrino-energy
+reconstruction. It is a lower-bound estimator.
+
+No CEvNS nuclear-recoil energy-resolution model is configured by default, so
+the CEvNS lower-bound spectra are currently unsmeared. The code can use a CEvNS
+energy-resolution block if one is added to `reco_response_config.json`, but no
+validated detector model is supplied yet.
+
+## CEvNS Model
+
+CEvNS is implemented for the gas constituents explicitly:
+
+| Element | Isotope | Z | N | A | J |
+| --- | --- | ---: | ---: | ---: | ---: |
+| C | `12C` | 6 | 6 | 12 | 0 |
+| F | `19F` | 9 | 10 | 19 | 1/2 |
+| H | `1H` | 1 | 0 | 1 | 1/2 |
+| He | `4He` | 2 | 2 | 4 | 0 |
+
+### Vector Term
+
+The vector weak charge is:
+
+```text
+Q_W = Z * (1 - 4 sin^2(theta_W)) - N
+```
+
+Vector CEvNS is computed for all four isotopes. Hydrogen is intentionally kept:
+because `N = 0`, its vector weak charge is small, but it is not silently
+ignored.
+
+The default vector form-factor mode is:
+
+- `12C`: Helm
+- `19F`: Helm
+- `1H`: pointlike `F_W = 1`
+- `4He`: pointlike `F_W = 1`
+
+The global CLI option `--cevns-form-factor helm` applies the same Helm
+placeholder expression to all isotopes for comparison. For `1H` and `4He`, Helm
+is not treated as a precision model.
+
+### Axial Term
+
+The cross section is implemented as vector plus pure axial. Vector-axial
+interference is not included; the local axial-vector CEvNS reference states
+that these terms either vanish or are recoil-suppressed for the current
+convention.
+
+Axial status by isotope:
+
+- `12C`: zero because `J = 0`.
+- `4He`: zero because `J = 0`.
+- `19F`: implemented with the Hoferichter-Menendez-Schwenk transverse
+  Sigma-prime response and local fit coefficients.
+- `1H`: not implemented for the axial/proton neutral-current elastic term.
+
+Supported axial switches are:
+
+- `none`: disable pure axial terms.
+- `hoferichter_19f_fast`: current default `19F` HMS response.
+- `hoferichter_19f_central`: currently aliases the same implemented `19F`
+  central response convention.
+- `toy`: `19F` only, using the zero-momentum response as a diagnostic; never
+  used for hydrogen.
+
+### Hydrogen Axial Review
+
+Only the local files under `Papers/CEvENS/` were used for this review:
+
+- `Papers/CEvENS/AccoppiamentoAssiale_Paper_2603.05281v1 (1).pdf`
+- `Papers/CEvENS/HMS_axialFitparams.pdf`
+- `Papers/CEvENS/HELM_vectorModel.pdf`
+
+The axial-vector paper gives the vector plus pure-axial CEvNS convention used
+here, discusses light nonzero-spin nuclei, and highlights fluorine compounds.
+The HMS paper provides nuclear response formalism and fit coefficients for
+selected nuclei, including `19F`. It does not provide a ready, validated
+free-proton neutral-current elastic implementation in the same normalization as
+the current `A > 1` CEvNS helper.
+
+Therefore hydrogen axial/proton neutral-current elastic scattering is not
+implemented because the current local references do not provide a complete,
+validated implementation convention for the free-proton axial term in this
+code. Hydrogen therefore contributes only through the suppressed vector term,
+and CH4-rich mixtures are incomplete for proton-recoil studies.
+
+The code must not approximate hydrogen axial scattering with:
+
+- the `19F` HMS response;
+- the `19F` toy model;
+- any nuclear shell-model response table for `A > 1`.
+
+### CEvNS Threshold
+
+CEvNS uses a detector-level threshold interpreted for now as a true nuclear
+recoil threshold:
+
+```text
+cevns.nr_threshold_keV
+```
+
+It can be overridden with:
+
+```bash
+--cevns-threshold-kev 1.0
+```
+
+An optional true nuclear-recoil maximum can be supplied with:
+
+```bash
+--cevns-max-kev VALUE
+```
+
+or left unset to integrate to the kinematic maximum. CEvNS does not reuse the
+electron-recoil range/diffusion thresholds. Quenching and electron-equivalent
+threshold conversion are not implemented. When quenching is added later, the
+detector threshold must be mapped between electron-equivalent energy and true
+nuclear-recoil energy; that mapping is intentionally outside the current code.
+
+## Configuration
+
+`detector_geometry.json` currently contains the default fiducial detector:
+
+```json
+{
+  "name": "default_10x10x2m3_detector",
+  "length_m": 2.0,
+  "width_m": 10.0,
+  "height_m": 10.0
+}
+```
+
+`reco_response_config.json` contains electron-reconstruction response settings
+and the optional CEvNS block:
+
+```json
+{
+  "name": "default_threshold_scaled_response",
+  "energy_resolution_at_threshold_frac": 0.3,
+  "energy_resolution_constant_frac": 0.1,
+  "angular_resolution_at_threshold_deg": 20.0,
+  "angular_resolution_constant_deg": 5.0,
+  "reco_energy_bins": 100,
+  "cevns": {
+    "enabled": true,
+    "nr_threshold_keV": 1.0,
+    "nr_max_keV": null,
+    "form_factor": "default",
+    "axial_model": "hoferichter_19f_fast",
+    "reco_energy_bins": 100
+  }
+}
+```
+
+If the `cevns` block is absent, scripts use safe defaults:
+
+- `enabled = false`
+- `nr_threshold_keV = 1.0`
+- `nr_max_keV = null`
+- `form_factor = default`
+- `axial_model = hoferichter_19f_fast`
+- `reco_energy_bins = 100`
+
+CLI options override config values:
+
+```bash
+--enable-cevns
+--disable-cevns
+--cevns-threshold-kev 1.0
+--cevns-max-kev 10.0
+--cevns-form-factor default|helm|pointlike
+--cevns-axial-model none|hoferichter_19f_fast|hoferichter_19f_central|toy
+--skip-cevns-plots
+--skip-cevns-save
+```
+
+## Outputs
+
+### Neutrino-Electron Outputs
+
+Solar gas-target rates are written under `solar_nu_gas_target_rates/` by
+default. Each gas subdirectory contains:
+
+- `dR_dEnu.csv`: accepted rate density versus neutrino energy.
+- `dR_dTe.csv`: accepted rate density versus electron recoil energy.
+- `dR_dcosth.csv`: accepted angular spectrum.
+- Matching PNG plots.
+
+The root summary is:
+
+```text
+solar_nu_gas_target_rates/gas_target_rate_summary.csv
+```
+
+Supernova gas-target event counts are written under
+`supernova_nu_gas_target_events/`. Each model/gas directory contains:
+
+- `dN_dEnu.csv`
+- `dN_dTe.csv`
+- `dN_dcosth.csv`
+- Matching PNG plots.
+
+The root supernova summary is:
+
+```text
+supernova_nu_gas_target_events/all_models_event_summary.csv
+```
+
+Reconstructed neutrino-energy spectra are written as:
+
+```text
+reco_neutrino_energy_spectra.csv
+reco_neutrino_energy_spectra.png
+```
+
+inside each gas subdirectory.
+
+### CEvNS Outputs
+
+CEvNS outputs live in a `cevns/` subdirectory of the corresponding workflow
+output root.
+
+The primary CEvNS summary is now gas-aggregated. There is one row per gas for
+solar, or one row per model/gas for supernova. Isotope-level calculations are
+still performed, but isotope summaries are diagnostic files.
+
+Primary solar CEvNS summary:
+
+```text
+solar_nu_gas_target_rates/cevns/cevns_rate_summary.csv
+```
+
+Primary supernova CEvNS summary:
+
+```text
+supernova_nu_gas_target_events/cevns/all_models_cevns_event_summary.csv
+```
+
+Primary summary columns include:
+
+- `gas_label`
+- `gas`
+- `isotopes`
+- `number_of_targets_total`
+- `nr_threshold_keV`
+- `nr_max_keV`
+- `form_factor`
+- `axial_model`
+- `vector_total_rate_s-1` or `vector_total_counts`
+- `axial_total_rate_s-1` or `axial_total_counts`
+- `total_rate_s-1` or `total_counts`
+- `axial_fraction`
+- `hydrogen_axial_warning`
+- `isotope_detail_csv`
+
+The isotope-resolved diagnostic summaries are:
+
+```text
+cevns_rate_summary_by_isotope.csv
+all_models_cevns_event_summary_by_isotope.csv
+```
+
+Each CEvNS gas subdirectory contains primary gas-total spectra:
+
+```text
+cevns_recoil_spectrum.csv
+cevns_accepted_Enu_spectrum.csv
+cevns_reco_energy_min_spectrum.csv
+```
+
+and isotope-resolved diagnostic spectra:
+
+```text
+cevns_recoil_spectrum_by_isotope.csv
+cevns_accepted_Enu_spectrum_by_isotope.csv
+cevns_reco_energy_min_spectrum_by_isotope.csv
+```
+
+Solar CEvNS recoil spectrum columns:
+
+- `gas_label`
+- `gas`
+- `T_N_keV`
+- `dR_dT_s-1_keV-1_vector`
+- `dR_dT_s-1_keV-1_axial`
+- `dR_dT_s-1_keV-1_total`
+
+Supernova CEvNS recoil spectrum columns use counts:
+
+- `dN_dT_keV-1_vector`
+- `dN_dT_keV-1_axial`
+- `dN_dT_keV-1_total`
+
+CEvNS lower-bound spectra use:
+
+- `E_nu_reco_min_MeV`
+- component totals per bin;
+- component densities per MeV;
+- `reconstruction_note`.
+
+## Practical Commands
+
+### Environment
+
+Use `python3` in WSL:
+
+```bash
+python3 --version
+python3 -m pip install -r requirements.txt
+```
+
+Compile-check the code:
+
+```bash
+python3 -m py_compile detector_model.py cevns.py *.py DetectorNumbers/*.py
+```
+
+### Detector-Number Preprocessing
+
+Run these when gas densities, stopping-power inputs, or Garfield transport
+summaries change:
+
+```bash
+python3 DetectorNumbers/computePlotRanges.py
+python3 DetectorNumbers/computeDiffusion.py
+```
+
+### Solar, Electron Scattering Only
+
+```bash
+python3 plotFluxes.py
+python3 scatteringPlots.py
+python3 gasTargetRates.py --disable-cevns
+python3 recoNuEnergyComparison.py --disable-cevns
+```
+
+### Solar With CEvNS
+
+```bash
+python3 plotFluxes.py
+python3 gasTargetRates.py --enable-cevns --cevns-threshold-kev 1.0
+python3 recoNuEnergyComparison.py --enable-cevns --cevns-threshold-kev 1.0
+```
+
+### Supernova, Electron Scattering Only
+
+```bash
+python3 generate_sn_fluence.py
+python3 supernovaGasTargetEvents.py --disable-cevns
+python3 supernovaRecoNuEnergyComparison.py --disable-cevns
+```
+
+### Supernova With CEvNS
+
+```bash
+python3 generate_sn_fluence.py
+python3 supernovaGasTargetEvents.py --enable-cevns --cevns-threshold-kev 1.0
+python3 supernovaRecoNuEnergyComparison.py --enable-cevns --cevns-threshold-kev 1.0
+```
+
+### Supernova Distance Scan
+
+Run every gas row in the gas-density table:
+
+```bash
+python3 supernovaDistanceGasScan.py --nr-threshold-kev 1.0
+```
+
+To inspect or restrict the gas rows:
+
+```bash
+python3 supernovaDistanceGasScan.py --list-gases
+python3 supernovaDistanceGasScan.py --gas cf4_1atm --nr-threshold-kev 1.0
+```
+
+The distance scan writes one subfolder per gas row under
+`supernova_distance_gas_scan/<model>/<gas_slug>/`. It reports expected counts
+and average burst rates for both neutrino-electron scattering and CEvNS. The
+average rates are `counts / --burst-duration-s`; the input supernova fluence is
+time-integrated.
+
+### CEvNS Plot/Save Switches
+
+Compute CEvNS but do not write CEvNS plots:
+
+```bash
+python3 gasTargetRates.py --enable-cevns --skip-cevns-plots
+```
+
+Compute CEvNS but do not write CEvNS CSV tables:
+
+```bash
+python3 gasTargetRates.py --enable-cevns --skip-cevns-save
+```
+
+### Standalone CEvNS Diagnostic
+
+The standalone helper is useful for checking isotope target counts and sample
+cross sections:
+
+```bash
+python3 cevns.py --energy-mev 10 --recoil-kev 0.1 --form-factor default
+```
+
+## Smoke Tests
+
+The following smoke sequence exercises the main workflows without writing into
+the repository output directories:
+
+```bash
+python3 -m py_compile detector_model.py cevns.py *.py DetectorNumbers/*.py
+python3 plotFluxes.py
+python3 scatteringPlots.py --outdir /tmp/cygnus_review_scattering
+
+python3 gasTargetRates.py \
+  --disable-cevns \
+  --t-grid-points 40 \
+  --costh-grid-points 40 \
+  --outdir /tmp/cygnus_review_solar_no_cevns
+
+python3 gasTargetRates.py \
+  --enable-cevns \
+  --cevns-threshold-kev 1.0 \
+  --t-grid-points 80 \
+  --costh-grid-points 80 \
+  --outdir /tmp/cygnus_review_solar_with_cevns
+
+python3 recoNuEnergyComparison.py \
+  --enable-cevns \
+  --cevns-threshold-kev 1.0 \
+  --t-grid-points 40 \
+  --max-true-energy-points 80 \
+  --outdir /tmp/cygnus_review_solar_reco_with_cevns
+
+python3 generate_sn_fluence.py --output-root /tmp/cygnus_review_sn_fluence
+
+python3 supernovaGasTargetEvents.py \
+  --disable-cevns \
+  --fluence-root /tmp/cygnus_review_sn_fluence \
+  --output-root /tmp/cygnus_review_sn_events_no_cevns \
+  --t-grid-points 40 \
+  --costh-grid-points 40
+
+python3 supernovaGasTargetEvents.py \
+  --enable-cevns \
+  --fluence-root /tmp/cygnus_review_sn_fluence \
+  --output-root /tmp/cygnus_review_sn_events_with_cevns \
+  --t-grid-points 80 \
+  --costh-grid-points 80
+
+python3 supernovaRecoNuEnergyComparison.py \
+  --enable-cevns \
+  --fluence-root /tmp/cygnus_review_sn_fluence \
+  --output-root /tmp/cygnus_review_sn_reco_with_cevns \
+  --t-grid-points 40 \
+  --max-true-energy-points 80
+```
+
+Additional switch checks:
+
+```bash
+python3 gasTargetRates.py \
+  --enable-cevns \
+  --skip-cevns-plots \
+  --t-grid-points 20 \
+  --costh-grid-points 20 \
+  --outdir /tmp/cygnus_review_skip_plots
+
+python3 gasTargetRates.py \
+  --enable-cevns \
+  --skip-cevns-save \
+  --t-grid-points 20 \
+  --costh-grid-points 20 \
+  --outdir /tmp/cygnus_review_skip_save
+```
+
+Validation record from April 29, 2026:
+
+- Compile check passed.
+- Solar flux generation passed.
+- One-electron scattering plots passed.
+- Solar gas rates passed with CEvNS disabled.
+- Solar gas rates passed with CEvNS enabled.
+- Solar CEvNS lower-bound spectra passed.
+- Supernova fluence generation passed.
+- Supernova gas counts passed with CEvNS disabled.
+- Supernova gas counts passed with CEvNS enabled.
+- Supernova CEvNS lower-bound spectra passed.
+- `--skip-cevns-plots` wrote CEvNS CSV files and no CEvNS PNG summary.
+- `--skip-cevns-save` wrote CEvNS PNG files and no CEvNS CSV summary.
+- Primary CEvNS summaries are gas-aggregated: 7 gas rows for the current gas
+  table.
+- Isotope-resolved CEvNS summaries are still available: 21 isotope rows for the
+  current gas table.
+- CF4 aggregation check passed: gas-total `CF4 @ 1 atm` equals `12C + 19F`
+  from the isotope diagnostic file within numerical precision.
+
+Representative CEvNS values for the default 200 m3 detector, threshold
+`1.0 keV`, `form_factor=default`, and
+`axial_model=hoferichter_19f_fast`:
+
+| Quantity | Value |
+| --- | ---: |
+| Solar CEvNS total, all configured gases | `2.6119615624430152e-05 s^-1` |
+| Solar CEvNS total, `CF4 @ 1 atm` | `1.7377926123377398e-06 s^-1` |
+| SN1987A-like CEvNS total, all configured gases | `30.19570376170965 counts` |
+| SN1987A-like CEvNS total, `CF4 @ 1 atm` | `2.0093971116078406 counts` |
+
+The final smoke script printed:
+
+```text
+aggregation_checks_ok
+FULL_SMOKE_OK
+```
+
+## Limitations
+
+- The solar oscillation/flavor split is compact and approximate.
+- The neutrino-electron gas-target rates include range/diffusion acceptance,
+  but not a full detector simulation.
+- CEvNS has no directionality.
+- CEvNS uses a true nuclear-recoil threshold. Quenching and
+  electron-equivalent threshold conversion are not implemented.
+- Hydrogen axial/proton neutral-current elastic scattering is not implemented;
+  hydrogen contributes only through the suppressed vector term.
+- The default `1H` and `4He` vector form factors are pointlike. Helm for those
+  isotopes is only a comparison placeholder.
+- Isotope masses use `A * atomic_mass_unit`; atomic binding and electron-mass
+  corrections are below the intended precision of this sandbox.
+- The `19F` HMS axial response is used as a central first-pass model. The HMS
+  uncertainty band is not propagated through the rates.
+- CEvNS output aggregation changes only the reporting layer: isotope-level
+  calculations are still performed and written as diagnostic files.
+- Generated output folders can be stale. Rerun the workflows after changing
+  inputs, detector settings, or physics helpers.

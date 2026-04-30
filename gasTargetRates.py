@@ -50,11 +50,21 @@ from detector_model import (
     resolve_recoil_window_keV,
 )
 import scatteringPlots as sp
+from cevns_pipeline import (
+    add_cevns_cli_args,
+    compute_cevns_spectra_for_gas,
+    load_cevns_config,
+    save_cevns_tables,
+    solar_active_flux,
+    write_cevns_spectrum_plots,
+    write_cevns_summary,
+)
 
 
 SECONDS_PER_YEAR = 365.25 * 24.0 * 3600.0
 
 DEFAULT_OUTDIR = REPO_ROOT / "solar_nu_gas_target_rates"
+DEFAULT_RESPONSE_CONFIG = REPO_ROOT / "reco_response_config.json"
 
 TRAPEZOID = getattr(np, "trapezoid", np.trapz)
 
@@ -95,6 +105,11 @@ def parse_args() -> argparse.Namespace:
         help="Detector geometry JSON config",
     )
     parser.add_argument(
+        "--response-config",
+        default=str(DEFAULT_RESPONSE_CONFIG),
+        help="Response JSON config containing the optional CEvNS block",
+    )
+    parser.add_argument(
         "--outdir",
         default=str(DEFAULT_OUTDIR),
         help="Output directory",
@@ -117,6 +132,7 @@ def parse_args() -> argparse.Namespace:
         default=1200,
         help="Number of recoil-direction grid points",
     )
+    add_cevns_cli_args(parser)
     return parser.parse_args()
 
 
@@ -633,6 +649,7 @@ def main() -> int:
     range_csv = Path(args.range_csv)
     diffusion_csv = Path(args.diffusion_csv)
     geometry_config = Path(args.geometry_config)
+    response_config = Path(args.response_config)
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -654,6 +671,10 @@ def main() -> int:
     geometry = read_detector_geometry_config(geometry_config)
     volume_cm3 = float(args.volume_cm3) if args.volume_cm3 is not None else geometry.volume_cm3
     volume_source = "cli_override" if args.volume_cm3 is not None else "geometry_config"
+    cevns_config = load_cevns_config(response_config, args, default_enabled=False)
+    cevns_flux = solar_active_flux(flux_df) if cevns_config.enabled else None
+    cevns_outdir = outdir / "cevns"
+    cevns_summary_rows = []
 
     base_inputs = prepare_base_flux_inputs(
         flux_df=flux_df,
@@ -704,6 +725,37 @@ def main() -> int:
             T_high_keV=T_high_keV,
             scaled=scaled,
         )
+
+        if cevns_config.enabled:
+            recoil_df, enu_df, cevns_summary_df = compute_cevns_spectra_for_gas(
+                gas_name=gas_name,
+                gas_label=gas_label,
+                density_g_cm3=density_g_cm3,
+                volume_cm3=volume_cm3,
+                E_MeV=base_inputs["E_MeV"],
+                active_flux_or_fluence=cevns_flux,
+                config=cevns_config,
+                t_grid_points=args.t_grid_points,
+                quantity="rate",
+            )
+            cevns_gas_outdir = cevns_outdir / gas_slug
+            save_cevns_tables(
+                cevns_gas_outdir,
+                recoil_df=recoil_df,
+                enu_df=enu_df,
+                reco_df=None,
+                skip_save=args.skip_cevns_save,
+            )
+            write_cevns_spectrum_plots(
+                cevns_gas_outdir,
+                gas_label=gas_label,
+                recoil_df=recoil_df,
+                enu_df=enu_df,
+                quantity="rate",
+                skip_plots=args.skip_cevns_plots,
+            )
+            cevns_summary_df["output_subdir"] = str(Path("cevns") / gas_slug)
+            cevns_summary_rows.append(cevns_summary_df)
 
         total_rate_from_Enu = float(np.sum(scaled["rate_bin_total"]))
         total_rate_from_T = float(TRAPEZOID(scaled["dR_dT_total"], scaled["T_MeV"]))
@@ -757,6 +809,14 @@ def main() -> int:
     summary_path = outdir / "gas_target_rate_summary.csv"
     summary_df.to_csv(summary_path, index=False)
     write_summary_plot(outdir, summary_df)
+    cevns_summary_df = write_cevns_summary(
+        cevns_outdir,
+        cevns_summary_rows,
+        quantity="rate",
+        skip_save=args.skip_cevns_save,
+        skip_plots=args.skip_cevns_plots,
+        filename="cevns_rate_summary.csv",
+    ) if cevns_config.enabled else pd.DataFrame()
 
     print(f"Read {len(flux_df)} flux points from: {flux_csv}")
     print(f"Read {len(gas_df)} gas entries from: {gas_csv}")
@@ -768,6 +828,20 @@ def main() -> int:
     )
     print(f"Saved gas-target rate tables and plots in: {outdir.resolve()}")
     print(f"Saved summary: {summary_path.resolve()}")
+    if cevns_config.enabled:
+        print(
+            "CEvNS enabled: "
+            f"threshold={cevns_config.nr_threshold_keV:g} keV, "
+            f"max={cevns_config.nr_max_keV}, "
+            f"form_factor={cevns_config.form_factor}, "
+            f"axial_model={cevns_config.axial_model}"
+        )
+        print(f"CEvNS outputs directory: {cevns_outdir.resolve()}")
+        if not cevns_summary_df.empty:
+            print(
+                "CEvNS total solar rate across all gas-aggregated summary rows: "
+                f"{cevns_summary_df['total_rate_s-1'].sum():.6e} s^-1"
+            )
     return 0
 
 

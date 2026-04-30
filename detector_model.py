@@ -4,8 +4,9 @@ Shared detector and gas-target helpers for the CYGNUS-K research scripts.
 
 The repository keeps its runnable analysis scripts at the root for convenience.
 This module holds the reusable detector-side pieces that are needed by the
-solar and supernova workflows: gas densities, target-electron counting,
-range/diffusion recoil windows, detector geometry, and simple output labels.
+solar and supernova workflows: gas densities, target-electron and target-isotope
+counting, range/diffusion recoil windows, detector geometry, and simple output
+labels.
 """
 
 from __future__ import annotations
@@ -117,6 +118,15 @@ SPECIES = {
         molar_mass_g_mol=12.011 + 4.0 * 1.00794,
         electrons_per_molecule=6.0 + 4.0 * 1.0,
     ),
+}
+
+# Explicit isotope content used by the CEvNS helpers. Fractions in GAS_MIXTURES
+# are molecular/volume fractions; these stoichiometric counts are per molecule
+# or atom of the listed gas species.
+SPECIES_ISOTOPES = {
+    "He": {"He4": 1.0},
+    "CF4": {"C12": 1.0, "F19": 4.0},
+    "CH4": {"C12": 1.0, "H1": 4.0},
 }
 
 # Fractions are treated as molecular/volume fractions for ideal-gas mixtures.
@@ -243,6 +253,74 @@ def electron_density_cm3(gas_name: str, density_g_cm3: float) -> tuple[float, fl
     molecules_per_cm3 = density_g_cm3 * AVOGADRO / molar_mass
     electrons_per_cm3 = molecules_per_cm3 * electrons_per_mixture
     return electrons_per_cm3, molar_mass, electrons_per_mixture
+
+
+def isotope_density_cm3(
+    gas_name: str,
+    density_g_cm3: float,
+) -> tuple[dict[str, float], float, dict[str, float]]:
+    """
+    Return isotope number densities for a configured gas target.
+
+    Returns:
+        isotope densities in cm^-3, mean molar mass in g/mol, and isotope
+        counts per mixture particle.
+
+    The gas-mixture fractions are interpreted as molecular fractions. For an
+    ideal gas this is equivalent to volume fraction.
+    """
+
+    if gas_name not in GAS_MIXTURES:
+        raise KeyError(f"Gas mixture '{gas_name}' is not configured in GAS_MIXTURES.")
+
+    mixture = GAS_MIXTURES[gas_name]
+    molar_mass = 0.0
+    isotopes_per_mixture: dict[str, float] = {}
+
+    for species_name, fraction in mixture.items():
+        species = SPECIES[species_name]
+        molar_mass += fraction * species.molar_mass_g_mol
+
+        if species_name not in SPECIES_ISOTOPES:
+            raise KeyError(f"Gas species '{species_name}' is not configured in SPECIES_ISOTOPES.")
+        for isotope_name, stoichiometric_count in SPECIES_ISOTOPES[species_name].items():
+            isotopes_per_mixture[isotope_name] = (
+                isotopes_per_mixture.get(isotope_name, 0.0)
+                + fraction * stoichiometric_count
+            )
+
+    mixture_particles_per_cm3 = density_g_cm3 * AVOGADRO / molar_mass
+    isotopes_per_cm3 = {
+        isotope_name: mixture_particles_per_cm3 * count_per_mixture
+        for isotope_name, count_per_mixture in isotopes_per_mixture.items()
+    }
+    return isotopes_per_cm3, molar_mass, isotopes_per_mixture
+
+
+def isotope_target_counts(
+    gas_name: str,
+    density_g_cm3: float,
+    volume_cm3: float,
+) -> tuple[dict[str, float], float, dict[str, float]]:
+    """
+    Return isotope target counts in the detector volume.
+
+    Counts are computed from the gas density, mean molar mass, molecular mixture
+    fractions, Avogadro number, and detector volume.
+    """
+
+    isotopes_per_cm3, molar_mass, isotopes_per_mixture = isotope_density_cm3(
+        gas_name,
+        density_g_cm3,
+    )
+    return (
+        {
+            isotope_name: number_density * volume_cm3
+            for isotope_name, number_density in isotopes_per_cm3.items()
+        },
+        molar_mass,
+        isotopes_per_mixture,
+    )
 
 
 def safe_slug(text: str) -> str:

@@ -43,11 +43,21 @@ from gasTargetRates import (
     dsigma_dT_rescaled,
     sigma_accepted_rescaled,
 )
+from cevns_pipeline import (
+    add_cevns_cli_args,
+    compute_cevns_spectra_for_gas,
+    load_cevns_config,
+    save_cevns_tables,
+    supernova_active_fluence,
+    write_cevns_spectrum_plots,
+    write_cevns_summary,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_SUPERNOVA_MODEL = "SN1987A_like"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "supernova_nu_gas_target_events"
+DEFAULT_RESPONSE_CONFIG = REPO_ROOT / "reco_response_config.json"
 TRAPEZOID = getattr(np, "trapezoid", np.trapz)
 
 
@@ -152,6 +162,11 @@ def parse_args() -> argparse.Namespace:
         help="Detector geometry JSON config",
     )
     parser.add_argument(
+        "--response-config",
+        default=str(DEFAULT_RESPONSE_CONFIG),
+        help="Response JSON config containing the optional CEvNS block",
+    )
+    parser.add_argument(
         "--volume-cm3",
         type=float,
         default=None,
@@ -175,6 +190,7 @@ def parse_args() -> argparse.Namespace:
         default=600,
         help="Number of recoil-direction grid points",
     )
+    add_cevns_cli_args(parser)
     return parser.parse_args()
 
 
@@ -601,6 +617,7 @@ def main() -> int:
     range_csv = Path(args.range_csv)
     diffusion_csv = Path(args.diffusion_csv)
     geometry_config = Path(args.geometry_config)
+    response_config = Path(args.response_config)
     for path, label in [
         (gas_csv, "Gas-density CSV"),
         (range_csv, "Recoil-window CSV"),
@@ -620,17 +637,22 @@ def main() -> int:
     diffusion_df = read_diffusion_summary_table(diffusion_csv)
     geometry = read_detector_geometry_config(geometry_config)
     volume_cm3 = float(args.volume_cm3) if args.volume_cm3 is not None else geometry.volume_cm3
+    cevns_config = load_cevns_config(response_config, args, default_enabled=False)
 
     all_summary_rows = []
+    all_cevns_summary_rows = []
     progress = ProgressBar(len(models) * len(gas_df), prefix="Supernova gas targets")
     progress.update(0, "starting")
     progress_index = 0
 
     for model in models:
         fluence_df = read_supernova_fluence_csv(model.csv_path)
+        cevns_fluence = supernova_active_fluence(fluence_df) if cevns_config.enabled else None
         model_outdir = output_root / model.name
         model_outdir.mkdir(parents=True, exist_ok=True)
+        model_cevns_outdir = model_outdir / "cevns"
         model_summary_rows = []
+        model_cevns_summary_rows = []
 
         for _, row in gas_df.iterrows():
             gas_name = row["Gas"]
@@ -675,6 +697,40 @@ def main() -> int:
                 T_high_MeV=T_high_MeV,
                 spectra=spectra,
             )
+
+            if cevns_config.enabled:
+                recoil_df, enu_df, cevns_summary_df = compute_cevns_spectra_for_gas(
+                    gas_name=gas_name,
+                    gas_label=gas_label_text,
+                    density_g_cm3=density_g_cm3,
+                    volume_cm3=volume_cm3,
+                    E_MeV=fluence_df["E_MeV"].to_numpy(dtype=float),
+                    active_flux_or_fluence=cevns_fluence,
+                    config=cevns_config,
+                    t_grid_points=args.t_grid_points,
+                    quantity="count",
+                )
+                cevns_gas_outdir = model_cevns_outdir / gas_slug
+                save_cevns_tables(
+                    cevns_gas_outdir,
+                    recoil_df=recoil_df,
+                    enu_df=enu_df,
+                    reco_df=None,
+                    skip_save=args.skip_cevns_save,
+                )
+                write_cevns_spectrum_plots(
+                    cevns_gas_outdir,
+                    gas_label=gas_label_text,
+                    recoil_df=recoil_df,
+                    enu_df=enu_df,
+                    quantity="count",
+                    skip_plots=args.skip_cevns_plots,
+                )
+                cevns_summary_df["model_name"] = model.name
+                cevns_summary_df["fluence_csv"] = str(model.csv_path)
+                cevns_summary_df["output_subdir"] = str(Path("cevns") / gas_slug)
+                model_cevns_summary_rows.append(cevns_summary_df)
+                all_cevns_summary_rows.append(cevns_summary_df)
 
             total_by_flavor = {
                 flavor.key: float(np.sum(spectra[f"count_bin_{OUTPUT_SUFFIX[flavor.key]}"]))
@@ -737,12 +793,29 @@ def main() -> int:
         model_summary_path = model_outdir / "gas_target_event_summary.csv"
         model_summary_df.to_csv(model_summary_path, index=False)
         write_model_summary_plot(model_outdir, model_summary_df, model.name)
+        if cevns_config.enabled:
+            write_cevns_summary(
+                model_cevns_outdir,
+                model_cevns_summary_rows,
+                quantity="count",
+                skip_save=args.skip_cevns_save,
+                skip_plots=args.skip_cevns_plots,
+                filename="cevns_event_summary.csv",
+            )
 
     progress.close()
 
     all_summary_df = pd.DataFrame(all_summary_rows)
     all_summary_path = output_root / "all_models_event_summary.csv"
     all_summary_df.to_csv(all_summary_path, index=False)
+    all_cevns_summary_df = write_cevns_summary(
+        output_root / "cevns",
+        all_cevns_summary_rows,
+        quantity="count",
+        skip_save=args.skip_cevns_save,
+        skip_plots=args.skip_cevns_plots,
+        filename="all_models_cevns_event_summary.csv",
+    ) if cevns_config.enabled else pd.DataFrame()
 
     print(f"Processed {len(models)} supernova fluence model(s) from: {fluence_root}")
     print(f"Read {len(gas_df)} gas entries from: {gas_csv}")
@@ -754,6 +827,20 @@ def main() -> int:
     print("Primary supernova outputs are expected counts, not rates.")
     print(f"Saved supernova gas-target event outputs in: {output_root.resolve()}")
     print(f"Saved root summary: {all_summary_path.resolve()}")
+    if cevns_config.enabled:
+        print(
+            "CEvNS enabled: "
+            f"threshold={cevns_config.nr_threshold_keV:g} keV, "
+            f"max={cevns_config.nr_max_keV}, "
+            f"form_factor={cevns_config.form_factor}, "
+            f"axial_model={cevns_config.axial_model}"
+        )
+        print(f"CEvNS outputs directory: {(output_root / 'cevns').resolve()}")
+        if not all_cevns_summary_df.empty:
+            print(
+                "CEvNS total supernova counts across all model/gas summary rows: "
+                f"{all_cevns_summary_df['total_counts'].sum():.6e}"
+            )
     return 0
 
 

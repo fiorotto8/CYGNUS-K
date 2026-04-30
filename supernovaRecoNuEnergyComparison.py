@@ -60,6 +60,16 @@ from supernovaGasTargetEvents import (
     discover_fluence_models,
     read_supernova_fluence_csv,
 )
+from cevns_pipeline import (
+    add_cevns_cli_args,
+    build_cevns_lower_bound_reco,
+    compute_cevns_spectra_for_gas,
+    load_cevns_config,
+    save_cevns_tables,
+    supernova_active_fluence,
+    write_cevns_reco_plot,
+    write_cevns_summary,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -135,6 +145,7 @@ def parse_args() -> argparse.Namespace:
             "Use 0 to disable compression."
         ),
     )
+    add_cevns_cli_args(parser)
     return parser.parse_args()
 
 
@@ -374,13 +385,19 @@ def process_model(
     response: ReconstructionResponse,
     t_grid_points: int,
     max_true_energy_points: int,
+    cevns_config,
+    skip_cevns_save: bool,
+    skip_cevns_plots: bool,
     progress: ProgressBar,
     progress_index: int,
-) -> tuple[list[dict[str, float | str]], int]:
+) -> tuple[list[dict[str, float | str]], list[pd.DataFrame], int]:
     fluence_df = read_supernova_fluence_csv(model.csv_path)
+    cevns_fluence = supernova_active_fluence(fluence_df) if cevns_config.enabled else None
     model_outdir = output_root / model.name
     model_outdir.mkdir(parents=True, exist_ok=True)
+    model_cevns_outdir = model_outdir / "cevns"
     model_rows = []
+    model_cevns_summary_rows = []
 
     for _, row in gas_df.iterrows():
         gas_name = row["Gas"]
@@ -424,6 +441,44 @@ def process_model(
             reco_df=reco_df,
         )
 
+        if cevns_config.enabled:
+            recoil_df, enu_df, cevns_summary_df = compute_cevns_spectra_for_gas(
+                gas_name=gas_name,
+                gas_label=gas_label_text,
+                density_g_cm3=density_g_cm3,
+                volume_cm3=volume_cm3,
+                E_MeV=fluence_df["E_MeV"].to_numpy(dtype=float),
+                active_flux_or_fluence=cevns_fluence,
+                config=cevns_config,
+                t_grid_points=t_grid_points,
+                quantity="count",
+            )
+            cevns_reco_df = build_cevns_lower_bound_reco(
+                recoil_df,
+                config=cevns_config,
+                quantity="count",
+            )
+            cevns_gas_outdir = model_cevns_outdir / gas_slug
+            save_cevns_tables(
+                cevns_gas_outdir,
+                recoil_df=recoil_df,
+                enu_df=enu_df,
+                reco_df=cevns_reco_df,
+                skip_save=skip_cevns_save,
+            )
+            write_cevns_reco_plot(
+                cevns_gas_outdir,
+                gas_label=gas_label_text,
+                reco_df=cevns_reco_df,
+                quantity="count",
+                skip_plots=skip_cevns_plots,
+            )
+            cevns_summary_df["model_name"] = model.name
+            cevns_summary_df["fluence_csv"] = str(model.csv_path)
+            cevns_summary_df["output_subdir"] = str(Path("cevns") / gas_slug)
+            cevns_summary_df["reconstruction_note"] = cevns_config.reconstruction_note
+            model_cevns_summary_rows.append(cevns_summary_df)
+
         row_payload = {
             "model_name": model.name,
             "fluence_csv": str(model.csv_path),
@@ -464,7 +519,16 @@ def process_model(
 
     model_summary_path = model_outdir / "reco_neutrino_energy_summary.csv"
     pd.DataFrame(model_rows).to_csv(model_summary_path, index=False)
-    return model_rows, progress_index
+    if cevns_config.enabled:
+        write_cevns_summary(
+            model_cevns_outdir,
+            model_cevns_summary_rows,
+            quantity="count",
+            skip_save=skip_cevns_save,
+            skip_plots=skip_cevns_plots,
+            filename="cevns_reco_energy_min_summary.csv",
+        )
+    return model_rows, model_cevns_summary_rows, progress_index
 
 
 def main() -> int:
@@ -504,13 +568,15 @@ def main() -> int:
     geometry = read_detector_geometry_config(geometry_config)
     response = read_response_config(response_config)
     volume_cm3 = float(args.volume_cm3) if args.volume_cm3 is not None else geometry.volume_cm3
+    cevns_config = load_cevns_config(response_config, args, default_enabled=False)
 
     all_rows = []
+    all_cevns_summary_rows = []
     progress = ProgressBar(len(models) * len(gas_df), prefix="Supernova reco spectra")
     progress.update(0, "starting")
     progress_index = 0
     for model in models:
-        model_rows, progress_index = process_model(
+        model_rows, model_cevns_rows, progress_index = process_model(
             model,
             output_root=output_root,
             gas_df=gas_df,
@@ -520,14 +586,26 @@ def main() -> int:
             response=response,
             t_grid_points=args.t_grid_points,
             max_true_energy_points=args.max_true_energy_points,
+            cevns_config=cevns_config,
+            skip_cevns_save=args.skip_cevns_save,
+            skip_cevns_plots=args.skip_cevns_plots,
             progress=progress,
             progress_index=progress_index,
         )
         all_rows.extend(model_rows)
+        all_cevns_summary_rows.extend(model_cevns_rows)
     progress.close()
 
     summary_path = output_root / "all_models_reco_energy_summary.csv"
     pd.DataFrame(all_rows).to_csv(summary_path, index=False)
+    all_cevns_summary_df = write_cevns_summary(
+        output_root / "cevns",
+        all_cevns_summary_rows,
+        quantity="count",
+        skip_save=args.skip_cevns_save,
+        skip_plots=args.skip_cevns_plots,
+        filename="all_models_cevns_reco_energy_min_summary.csv",
+    ) if cevns_config.enabled else pd.DataFrame()
 
     print(f"Processed {len(models)} supernova fluence model(s) from: {fluence_root}")
     print(f"Read {len(gas_df)} gas entries from: {gas_csv}")
@@ -547,6 +625,14 @@ def main() -> int:
     print("Primary supernova reconstructed spectra are counts, not rates.")
     print(f"Saved supernova reconstructed-energy outputs in: {output_root.resolve()}")
     print(f"Saved root summary: {summary_path.resolve()}")
+    if cevns_config.enabled:
+        print(f"CEvNS lower-bound reconstruction outputs directory: {(output_root / 'cevns').resolve()}")
+        print(cevns_config.reconstruction_note)
+        if not all_cevns_summary_df.empty:
+            print(
+                "CEvNS total supernova counts across all model/gas summary rows: "
+                f"{all_cevns_summary_df['total_counts'].sum():.6e}"
+            )
     return 0
 
 

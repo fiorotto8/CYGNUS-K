@@ -58,6 +58,16 @@ from gasTargetRates import (
     sigma_accepted_rescaled,
     sigma_total_sm_from_dT,
 )
+from cevns_pipeline import (
+    add_cevns_cli_args,
+    build_cevns_lower_bound_reco,
+    compute_cevns_spectra_for_gas,
+    load_cevns_config,
+    save_cevns_tables,
+    solar_active_flux,
+    write_cevns_reco_plot,
+    write_cevns_summary,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -169,6 +179,7 @@ def parse_args() -> argparse.Namespace:
             "Use 0 to disable compression and use the full flux grid."
         ),
     )
+    add_cevns_cli_args(parser)
     return parser.parse_args()
 
 
@@ -656,6 +667,10 @@ def main() -> int:
     response = read_response_config(response_config)
     volume_cm3 = float(args.volume_cm3) if args.volume_cm3 is not None else geometry.volume_cm3
     volume_source = "cli_override" if args.volume_cm3 is not None else "geometry_config"
+    cevns_config = load_cevns_config(response_config, args, default_enabled=False)
+    cevns_flux = solar_active_flux(flux_df) if cevns_config.enabled else None
+    cevns_outdir = outdir / "cevns"
+    cevns_summary_rows = []
 
     summary_rows = []
     progress = ProgressBar(len(gas_df), prefix="Reconstructed spectra")
@@ -706,6 +721,42 @@ def main() -> int:
             reco_df=reco_df,
         )
 
+        if cevns_config.enabled:
+            recoil_df, enu_df, cevns_summary_df = compute_cevns_spectra_for_gas(
+                gas_name=gas_name,
+                gas_label=gas_label,
+                density_g_cm3=density_g_cm3,
+                volume_cm3=volume_cm3,
+                E_MeV=flux_df["E_MeV"].to_numpy(dtype=float),
+                active_flux_or_fluence=cevns_flux,
+                config=cevns_config,
+                t_grid_points=args.t_grid_points,
+                quantity="rate",
+            )
+            cevns_reco_df = build_cevns_lower_bound_reco(
+                recoil_df,
+                config=cevns_config,
+                quantity="rate",
+            )
+            cevns_gas_outdir = cevns_outdir / gas_slug
+            save_cevns_tables(
+                cevns_gas_outdir,
+                recoil_df=recoil_df,
+                enu_df=enu_df,
+                reco_df=cevns_reco_df,
+                skip_save=args.skip_cevns_save,
+            )
+            write_cevns_reco_plot(
+                cevns_gas_outdir,
+                gas_label=gas_label,
+                reco_df=cevns_reco_df,
+                quantity="rate",
+                skip_plots=args.skip_cevns_plots,
+            )
+            cevns_summary_df["output_subdir"] = str(Path("cevns") / gas_slug)
+            cevns_summary_df["reconstruction_note"] = cevns_config.reconstruction_note
+            cevns_summary_rows.append(cevns_summary_df)
+
         summary_rows.append(
             {
                 "gas": gas_name,
@@ -753,6 +804,14 @@ def main() -> int:
     summary_df = pd.DataFrame(summary_rows)
     summary_path = outdir / "reco_neutrino_energy_summary.csv"
     summary_df.to_csv(summary_path, index=False)
+    cevns_summary_df = write_cevns_summary(
+        cevns_outdir,
+        cevns_summary_rows,
+        quantity="rate",
+        skip_save=args.skip_cevns_save,
+        skip_plots=args.skip_cevns_plots,
+        filename="cevns_reco_energy_min_summary.csv",
+    ) if cevns_config.enabled else pd.DataFrame()
 
     print(f"Read {len(flux_df)} flux points from: {flux_csv}")
     print(f"Read {len(gas_df)} gas entries from: {gas_csv}")
@@ -773,6 +832,14 @@ def main() -> int:
     )
     print(f"Saved reconstructed-spectrum outputs in: {outdir.resolve()}")
     print(f"Saved summary: {summary_path.resolve()}")
+    if cevns_config.enabled:
+        print(f"CEvNS lower-bound reconstruction outputs directory: {cevns_outdir.resolve()}")
+        print(cevns_config.reconstruction_note)
+        if not cevns_summary_df.empty:
+            print(
+                "CEvNS total solar rate across all gas-aggregated summary rows: "
+                f"{cevns_summary_df['total_rate_s-1'].sum():.6e} s^-1"
+            )
     return 0
 
 
