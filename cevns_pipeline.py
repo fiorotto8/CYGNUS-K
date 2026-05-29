@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from math import erf
 from pathlib import Path
 from typing import Iterable
@@ -25,8 +26,24 @@ from detector_model import PLOT_DPI, isotope_target_counts
 
 
 TRAPEZOID = getattr(np, "trapezoid", np.trapz)
+REPO_ROOT = Path(__file__).resolve().parent
+DEFAULT_QUENCHING_DIR = REPO_ROOT / "quenching_factor"
 CEVNS_AXIAL_MODELS = ("none", "hoferichter_19f_fast", "hoferichter_19f_central", "toy")
 CEVNS_FORM_FACTORS = ("default", "helm", "pointlike")
+CEVNS_THRESHOLD_MODES = ("true_nr", "qf_electron_equivalent")
+ISOTOPE_QUENCHING_FILES = {
+    "C12": "C_in_CF4.csv",
+    "F19": "F_in_CF4.csv",
+}
+
+
+@dataclass(frozen=True)
+class ThresholdResolution:
+    nr_threshold_keV: float
+    threshold_mode: str
+    visible_threshold_keVee: float | None
+    quenching_source_file: str
+    threshold_note: str
 
 
 @dataclass(frozen=True)
@@ -37,6 +54,9 @@ class CevnsConfig:
     form_factor: str = "default"
     axial_model: str = "hoferichter_19f_fast"
     reco_energy_bins: int = 100
+    threshold_mode: str = "true_nr"
+    visible_threshold_keVee: float = 1.0
+    quenching_dir: Path = DEFAULT_QUENCHING_DIR
     energy_resolution_at_threshold_frac: float | None = None
     energy_resolution_constant_frac: float | None = None
 
@@ -58,6 +78,15 @@ class CevnsConfig:
             "CEvNS energy-only lower-bound estimator E_nu_min(T_N); no CEvNS "
             "nuclear-recoil energy resolution is configured, so this spectrum is unsmeared."
         )
+
+    @property
+    def threshold_description(self) -> str:
+        if self.threshold_mode == "qf_electron_equivalent":
+            return (
+                f"{self.visible_threshold_keVee:g} keVee converted to isotope-specific "
+                "true nuclear-recoil thresholds with quenching factors"
+            )
+        return f"{self.nr_threshold_keV:g} keV true nuclear recoil"
 
 
 def parse_optional_float(value: str) -> float | None:
@@ -83,7 +112,30 @@ def add_cevns_cli_args(parser) -> None:
         "--cevns-threshold-kev",
         type=float,
         default=None,
-        help="True nuclear-recoil CEvNS threshold in keV.",
+        help=(
+            "True nuclear-recoil CEvNS threshold in keV when "
+            "--cevns-threshold-mode=true_nr."
+        ),
+    )
+    group.add_argument(
+        "--cevns-threshold-mode",
+        choices=CEVNS_THRESHOLD_MODES,
+        default=None,
+        help="CEvNS threshold convention.",
+    )
+    group.add_argument(
+        "--cevns-visible-threshold-kevee",
+        type=float,
+        default=None,
+        help=(
+            "Electron-equivalent CEvNS threshold in keVee when "
+            "--cevns-threshold-mode=qf_electron_equivalent."
+        ),
+    )
+    group.add_argument(
+        "--cevns-quenching-dir",
+        default=None,
+        help="Directory containing isotope quenching CSVs such as C_in_CF4.csv.",
     )
     group.add_argument(
         "--cevns-max-kev",
@@ -121,6 +173,16 @@ def _coerce_optional_float(value) -> float | None:
     return float(value)
 
 
+def _resolve_config_path(value: str | Path | None, config_path: Path | None) -> Path:
+    if value is None:
+        return DEFAULT_QUENCHING_DIR
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    base = config_path.parent if config_path is not None else REPO_ROOT
+    return (base / path).resolve()
+
+
 def load_cevns_config(path: Path | None, args, default_enabled: bool = False) -> CevnsConfig:
     block = {}
     if path is not None and path.exists():
@@ -151,6 +213,18 @@ def load_cevns_config(path: Path | None, args, default_enabled: bool = False) ->
         axial_model = str(args.cevns_axial_model)
 
     reco_energy_bins = int(block.get("reco_energy_bins", 100))
+    threshold_mode = str(block.get("threshold_mode", "true_nr"))
+    if getattr(args, "cevns_threshold_mode", None) is not None:
+        threshold_mode = str(args.cevns_threshold_mode)
+
+    visible_threshold_keVee = float(block.get("visible_threshold_keVee", 1.0))
+    if getattr(args, "cevns_visible_threshold_kevee", None) is not None:
+        visible_threshold_keVee = float(args.cevns_visible_threshold_kevee)
+
+    quenching_dir = _resolve_config_path(block.get("quenching_dir", None), path)
+    if getattr(args, "cevns_quenching_dir", None) is not None:
+        quenching_dir = _resolve_config_path(args.cevns_quenching_dir, None)
+
     energy_resolution_at_threshold_frac = _coerce_optional_float(
         block.get("energy_resolution_at_threshold_frac", None)
     )
@@ -165,6 +239,9 @@ def load_cevns_config(path: Path | None, args, default_enabled: bool = False) ->
         form_factor=form_factor,
         axial_model=axial_model,
         reco_energy_bins=reco_energy_bins,
+        threshold_mode=threshold_mode,
+        visible_threshold_keVee=visible_threshold_keVee,
+        quenching_dir=quenching_dir,
         energy_resolution_at_threshold_frac=energy_resolution_at_threshold_frac,
         energy_resolution_constant_frac=energy_resolution_constant_frac,
     )
@@ -175,6 +252,13 @@ def load_cevns_config(path: Path | None, args, default_enabled: bool = False) ->
 def validate_cevns_config(config: CevnsConfig) -> None:
     if config.nr_threshold_keV < 0.0:
         raise ValueError("CEvNS nuclear-recoil threshold must be non-negative.")
+    if config.threshold_mode not in CEVNS_THRESHOLD_MODES:
+        raise ValueError(f"Unsupported CEvNS threshold mode: {config.threshold_mode}")
+    if config.visible_threshold_keVee <= 0.0:
+        raise ValueError("CEvNS visible threshold must be positive.")
+    if config.enabled and config.threshold_mode == "qf_electron_equivalent":
+        if not config.quenching_dir.exists():
+            raise FileNotFoundError(f"CEvNS quenching directory not found: {config.quenching_dir}")
     if config.nr_max_keV is not None and config.nr_max_keV <= config.nr_threshold_keV:
         raise ValueError("CEvNS nuclear-recoil max must be greater than the threshold.")
     if config.form_factor not in CEVNS_FORM_FACTORS:
@@ -193,6 +277,95 @@ def validate_cevns_config(config: CevnsConfig) -> None:
         and config.energy_resolution_constant_frac < 0.0
     ):
         raise ValueError("CEvNS energy-resolution constant term must be non-negative.")
+
+
+@lru_cache(maxsize=16)
+def read_quenching_curve(path_text: str) -> tuple[np.ndarray, np.ndarray]:
+    path = Path(path_text)
+    if not path.exists():
+        raise FileNotFoundError(f"CEvNS quenching CSV not found: {path}")
+
+    df = pd.read_csv(path, header=None, comment="#")
+    if df.shape[1] < 2:
+        raise ValueError(f"Quenching CSV must contain at least two columns: {path}")
+    energy_keVnr = pd.to_numeric(df.iloc[:, 0], errors="coerce").to_numpy(dtype=float)
+    quenching_factor = pd.to_numeric(df.iloc[:, 1], errors="coerce").to_numpy(dtype=float)
+    valid = (
+        np.isfinite(energy_keVnr)
+        & np.isfinite(quenching_factor)
+        & (energy_keVnr > 0.0)
+        & (quenching_factor > 0.0)
+    )
+    energy_keVnr = energy_keVnr[valid]
+    quenching_factor = quenching_factor[valid]
+    if len(energy_keVnr) < 2:
+        raise ValueError(f"Quenching CSV has too few valid rows: {path}")
+
+    order = np.argsort(energy_keVnr)
+    energy_keVnr = energy_keVnr[order]
+    quenching_factor = quenching_factor[order]
+    visible_keVee = energy_keVnr * quenching_factor
+    if np.any(np.diff(visible_keVee) <= 0.0):
+        raise ValueError(
+            f"QF(T) * T must be strictly increasing for threshold inversion: {path}"
+        )
+    return energy_keVnr, quenching_factor
+
+
+def qf_threshold_keVnr(config: CevnsConfig, gas_name: str, isotope_key: str) -> ThresholdResolution:
+    if gas_name != "CF4":
+        raise ValueError(
+            "QF electron-equivalent CEvNS thresholds are currently configured only "
+            "for pure CF4. Use --gas CF4 --pressure-atm 10 for the focused paper "
+            "run, or switch CEvNS threshold_mode to true_nr for other gases."
+        )
+    filename = ISOTOPE_QUENCHING_FILES.get(isotope_key)
+    if filename is None:
+        raise ValueError(
+            f"No CF4 quenching curve is configured for isotope {isotope_key}. "
+            "Available curves cover C12 and F19."
+        )
+    path = (config.quenching_dir / filename).resolve()
+    energy_keVnr, quenching_factor = read_quenching_curve(str(path))
+    visible_keVee = energy_keVnr * quenching_factor
+    threshold_keVee = config.visible_threshold_keVee
+    if threshold_keVee < visible_keVee[0] or threshold_keVee > visible_keVee[-1]:
+        raise ValueError(
+            f"Visible threshold {threshold_keVee:g} keVee lies outside the TRIM "
+            f"quenching table range {visible_keVee[0]:.6g}--{visible_keVee[-1]:.6g} "
+            f"keVee for {isotope_key}; no extrapolation is allowed."
+        )
+    threshold_keVnr = float(np.interp(threshold_keVee, visible_keVee, energy_keVnr))
+    return ThresholdResolution(
+        nr_threshold_keV=threshold_keVnr,
+        threshold_mode=config.threshold_mode,
+        visible_threshold_keVee=threshold_keVee,
+        quenching_source_file=str(path),
+        threshold_note=(
+            "electron-equivalent CEvNS threshold converted to true nuclear recoil "
+            "with TRIM quenching; CEvNS is non-directional and does not use "
+            "electron-recoil range/diffusion cuts"
+        ),
+    )
+
+
+def resolve_cevns_threshold(
+    config: CevnsConfig,
+    gas_name: str,
+    isotope_key: str,
+) -> ThresholdResolution:
+    if config.threshold_mode == "qf_electron_equivalent":
+        return qf_threshold_keVnr(config, gas_name, isotope_key)
+    return ThresholdResolution(
+        nr_threshold_keV=config.nr_threshold_keV,
+        threshold_mode=config.threshold_mode,
+        visible_threshold_keVee=None,
+        quenching_source_file="",
+        threshold_note=(
+            "true nuclear recoil threshold; quenching/electron-equivalent threshold "
+            "not used"
+        ),
+    )
 
 
 def solar_active_flux(flux_df: pd.DataFrame) -> np.ndarray:
@@ -230,13 +403,14 @@ def recoil_grid_keV(
     E_MeV: np.ndarray,
     target: cevns.NuclearTarget,
     config: CevnsConfig,
+    nr_threshold_keV: float,
     n_points: int,
 ) -> np.ndarray:
     if n_points < 2:
         raise ValueError("CEvNS recoil grid needs at least 2 points.")
     t_kin_max = float(cevns.tmax_nuclear_keV(float(np.max(E_MeV)), target))
     t_upper = t_kin_max if config.nr_max_keV is None else min(config.nr_max_keV, t_kin_max)
-    t_low = config.nr_threshold_keV
+    t_low = nr_threshold_keV
     if t_upper <= t_low:
         return np.array([t_low, max(t_low, t_upper)], dtype=float)
     if t_low > 0.0:
@@ -249,6 +423,7 @@ def sigma_accepted_components(
     E_MeV: np.ndarray,
     target: cevns.NuclearTarget,
     config: CevnsConfig,
+    nr_threshold_keV: float,
     n_t_points: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     E = np.asarray(E_MeV, dtype=float)
@@ -259,10 +434,10 @@ def sigma_accepted_components(
         t_upper = float(cevns.tmax_nuclear_keV(energy, target))
         if config.nr_max_keV is not None:
             t_upper = min(t_upper, config.nr_max_keV)
-        if t_upper <= config.nr_threshold_keV:
+        if t_upper <= nr_threshold_keV:
             continue
 
-        T = np.linspace(config.nr_threshold_keV, t_upper, max(n_t_points, 2))
+        T = np.linspace(nr_threshold_keV, t_upper, max(n_t_points, 2))
         sigma_vector[idx] = float(
             TRAPEZOID(
                 cevns.dsigma_dT_vector(
@@ -359,7 +534,14 @@ def compute_cevns_spectra_for_gas(
     for isotope_key in sorted(target_counts, key=lambda key: cevns.NUCLEAR_TARGETS[key].A):
         target = cevns.NUCLEAR_TARGETS[isotope_key]
         number_of_targets = target_counts[isotope_key]
-        T_grid = recoil_grid_keV(E_MeV, target, config, t_grid_points)
+        threshold = resolve_cevns_threshold(config, gas_name, isotope_key)
+        T_grid = recoil_grid_keV(
+            E_MeV,
+            target,
+            config,
+            threshold.nr_threshold_keV,
+            t_grid_points,
+        )
 
         dT_vector, dT_axial, dT_total = recoil_spectrum_components(
             E_MeV,
@@ -373,6 +555,7 @@ def compute_cevns_spectra_for_gas(
             E_MeV,
             target,
             config,
+            threshold.nr_threshold_keV,
             n_t_points=t_grid_points,
         )
         accepted_vector = number_of_targets * active_flux_or_fluence * sigma_vector
@@ -389,6 +572,11 @@ def compute_cevns_spectra_for_gas(
                     "A": target.A,
                     "Z": target.Z,
                     "N": target.N,
+                    "threshold_mode": threshold.threshold_mode,
+                    "visible_threshold_keVee": threshold.visible_threshold_keVee,
+                    "nr_threshold_keV": threshold.nr_threshold_keV,
+                    "effective_nr_threshold_keV": threshold.nr_threshold_keV,
+                    "quenching_source_file": threshold.quenching_source_file,
                     "T_N_keV": T_keV,
                     component_column(quantity, "recoil", "vector"): vector,
                     component_column(quantity, "recoil", "axial"): axial,
@@ -408,6 +596,11 @@ def compute_cevns_spectra_for_gas(
                     "gas": gas_name,
                     "isotope": target.label,
                     "isotope_key": isotope_key,
+                    "threshold_mode": threshold.threshold_mode,
+                    "visible_threshold_keVee": threshold.visible_threshold_keVee,
+                    "nr_threshold_keV": threshold.nr_threshold_keV,
+                    "effective_nr_threshold_keV": threshold.nr_threshold_keV,
+                    "quenching_source_file": threshold.quenching_source_file,
                     "E_nu_MeV": energy,
                     component_column(quantity, "enu", "vector"): vector,
                     component_column(quantity, "enu", "axial"): axial,
@@ -429,8 +622,12 @@ def compute_cevns_spectra_for_gas(
                 "N": target.N,
                 "J": target.J,
                 "number_of_targets": number_of_targets,
-                "nr_threshold_keV": config.nr_threshold_keV,
+                "threshold_mode": threshold.threshold_mode,
+                "visible_threshold_keVee": threshold.visible_threshold_keVee,
+                "nr_threshold_keV": threshold.nr_threshold_keV,
+                "effective_nr_threshold_keV": threshold.nr_threshold_keV,
                 "nr_max_keV": config.nr_max_keV,
+                "quenching_source_file": threshold.quenching_source_file,
                 "form_factor": config.form_factor,
                 "axial_model": config.axial_model,
                 summary_column(quantity, "vector"): vector_integral,
@@ -442,10 +639,7 @@ def compute_cevns_spectra_for_gas(
                     if isotope_key == "H1"
                     else ""
                 ),
-                "threshold_note": (
-                    "true nuclear recoil threshold; quenching/electron-equivalent threshold "
-                    "not implemented"
-                ),
+                "threshold_note": threshold.threshold_note,
             }
         )
 
@@ -585,7 +779,8 @@ def aggregate_cevns_summary(summary_df: pd.DataFrame, quantity: str) -> pd.DataF
             "fluence_csv",
             "gas_label",
             "gas",
-            "nr_threshold_keV",
+            "threshold_mode",
+            "visible_threshold_keVee",
             "nr_max_keV",
             "form_factor",
             "axial_model",
@@ -605,12 +800,34 @@ def aggregate_cevns_summary(summary_df: pd.DataFrame, quantity: str) -> pd.DataF
         vector_total = float(group[vector_col].sum())
         axial_total = float(group[axial_col].sum())
         total = float(group[total_col].sum())
+        threshold_pairs = []
+        if "isotope" in group.columns and "effective_nr_threshold_keV" in group.columns:
+            for isotope, threshold in zip(group["isotope"], group["effective_nr_threshold_keV"]):
+                threshold_pairs.append(f"{isotope}:{float(threshold):.6g}")
+        threshold_values = (
+            group["effective_nr_threshold_keV"].to_numpy(dtype=float)
+            if "effective_nr_threshold_keV" in group.columns
+            else np.array([], dtype=float)
+        )
+        threshold_values = threshold_values[np.isfinite(threshold_values)]
+        quenching_files = sorted(
+            {
+                str(value)
+                for value in group.get("quenching_source_file", pd.Series(dtype=str))
+                if str(value)
+            }
+        )
         row.update(
             {
                 "isotopes": ",".join(isotopes),
                 "number_of_targets_total": float(group["number_of_targets"].sum())
                 if "number_of_targets" in group
                 else np.nan,
+                "nr_threshold_keV": float(np.max(threshold_values))
+                if len(threshold_values) > 0
+                else np.nan,
+                "effective_nr_thresholds_keV": ";".join(threshold_pairs),
+                "quenching_source_files": ";".join(quenching_files),
                 aggregate_summary_column(quantity, "vector"): vector_total,
                 aggregate_summary_column(quantity, "axial"): axial_total,
                 total_col: total,
@@ -651,12 +868,16 @@ def gaussian_bin_probabilities(
     )
 
 
-def cevns_sigma_T_keV(T_keV: np.ndarray, config: CevnsConfig) -> np.ndarray:
+def cevns_sigma_T_keV(
+    T_keV: np.ndarray,
+    config: CevnsConfig,
+    nr_threshold_keV: float,
+) -> np.ndarray:
     if not config.has_energy_resolution:
         return np.zeros_like(T_keV, dtype=float)
     T = np.clip(np.asarray(T_keV, dtype=float), 1.0e-9, None)
     threshold_term = config.energy_resolution_at_threshold_frac * np.sqrt(
-        config.nr_threshold_keV / T
+        nr_threshold_keV / T
     )
     frac = np.sqrt(threshold_term**2 + config.energy_resolution_constant_frac**2)
     return frac * T
@@ -703,8 +924,16 @@ def build_cevns_lower_bound_reco(
         T = group["T_N_keV"].to_numpy(dtype=float)
         dT = bin_widths_from_centers(T)
         means = cevns.emin_from_recoil_keV(T, target)
+        if "nr_threshold_keV" in group.columns:
+            thresholds = group["nr_threshold_keV"].to_numpy(dtype=float)
+            thresholds = thresholds[np.isfinite(thresholds)]
+            nr_threshold_keV = float(thresholds[0]) if len(thresholds) else config.nr_threshold_keV
+        else:
+            nr_threshold_keV = config.nr_threshold_keV
         sigma_mev = (
-            d_enu_min_dT_nuclear(T, target) * cevns_sigma_T_keV(T, config) / 1.0e3
+            d_enu_min_dT_nuclear(T, target)
+            * cevns_sigma_T_keV(T, config, nr_threshold_keV)
+            / 1.0e3
             if config.has_energy_resolution
             else np.zeros_like(T)
         )

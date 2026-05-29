@@ -32,11 +32,13 @@ from detector_model import (
     electron_density_cm3,
     gas_entry_label,
     gas_entry_slug,
+    print_available_gases,
     read_detector_geometry_config,
     read_diffusion_summary_table,
     read_gas_density_table,
     read_recoil_window_table,
     resolve_recoil_window_keV,
+    select_gas_rows,
 )
 import scatteringPlots as sp
 from gasTargetRates import (
@@ -146,6 +148,18 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--gas-csv", default=str(DEFAULT_GAS_CSV), help="Gas density table")
+    parser.add_argument(
+        "--gas",
+        default=None,
+        help="Optional gas-row filter by gas name, full label, or output slug.",
+    )
+    parser.add_argument(
+        "--pressure-atm",
+        type=float,
+        default=None,
+        help="Optional pressure selector in atm, e.g. 10 for the focused CF4 run.",
+    )
+    parser.add_argument("--list-gases", action="store_true", help="Print available gas rows and exit")
     parser.add_argument(
         "--range-csv",
         default=str(DEFAULT_RANGE_CSV),
@@ -633,6 +647,10 @@ def main() -> int:
         model_arg=args.models,
     )
     gas_df = read_gas_density_table(gas_csv)
+    if args.list_gases:
+        print_available_gases(gas_df)
+        return 0
+    gas_df = select_gas_rows(gas_df, args.gas, args.pressure_atm)
     recoil_window_df = read_recoil_window_table(range_csv)
     diffusion_df = read_diffusion_summary_table(diffusion_csv)
     geometry = read_detector_geometry_config(geometry_config)
@@ -830,7 +848,7 @@ def main() -> int:
     if cevns_config.enabled:
         print(
             "CEvNS enabled: "
-            f"threshold={cevns_config.nr_threshold_keV:g} keV, "
+            f"threshold={cevns_config.threshold_description}, "
             f"max={cevns_config.nr_max_keV}, "
             f"form_factor={cevns_config.form_factor}, "
             f"axial_model={cevns_config.axial_model}"

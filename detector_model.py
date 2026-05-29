@@ -335,6 +335,60 @@ def gas_entry_label(gas_name: str, pressure_atm: float) -> str:
     return f"{gas_name} @ {pressure_atm:g} atm"
 
 
+def print_available_gases(gas_df: pd.DataFrame) -> None:
+    print("Available gas rows:")
+    for idx, row in gas_df.reset_index(drop=True).iterrows():
+        gas_name = str(row["Gas"])
+        pressure_atm = float(row["Pressure (atm)"])
+        label = gas_entry_label(gas_name, pressure_atm)
+        slug = gas_entry_slug(gas_name, pressure_atm)
+        print(f"  [{idx}] {label}  slug={slug}")
+
+
+def select_gas_rows(
+    gas_df: pd.DataFrame,
+    gas_query: str | None,
+    pressure_atm: float | None,
+) -> pd.DataFrame:
+    """
+    Select gas-density rows by gas name/label/slug and optional pressure.
+
+    The selector intentionally matches the convenience names used in output
+    folders so focused paper runs can be reproduced without custom CSV files.
+    """
+
+    rows = []
+    if not gas_query:
+        for _, row in gas_df.iterrows():
+            if pressure_atm is None or np.isclose(float(row["Pressure (atm)"]), pressure_atm):
+                rows.append(row)
+        if not rows:
+            raise ValueError(
+                f"No gas rows matched --pressure-atm {pressure_atm:g}. "
+                "Run --list-gases for choices."
+            )
+        return pd.DataFrame(rows).reset_index(drop=True)
+
+    query = gas_query.strip().lower()
+    query_slug = safe_slug(gas_query)
+    for _, row in gas_df.iterrows():
+        gas_name = str(row["Gas"])
+        pressure = float(row["Pressure (atm)"])
+        candidates = {
+            gas_name.strip().lower(),
+            gas_entry_label(gas_name, pressure).strip().lower(),
+            gas_entry_slug(gas_name, pressure),
+            safe_slug(gas_name),
+        }
+        if query in candidates or query_slug in candidates:
+            if pressure_atm is None or np.isclose(pressure, pressure_atm):
+                rows.append(row)
+
+    if not rows:
+        raise ValueError(f"No gas row matched --gas {gas_query!r}. Run --list-gases for choices.")
+    return pd.DataFrame(rows).reset_index(drop=True)
+
+
 def diffusion_gas_key(gas_name: str, pressure_atm: float) -> str:
     if gas_name not in DIFFUSION_GAS_PATTERNS:
         raise KeyError(f"Gas mixture '{gas_name}' is not configured for diffusion matching.")

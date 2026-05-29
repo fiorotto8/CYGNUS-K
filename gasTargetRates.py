@@ -43,25 +43,34 @@ from detector_model import (
     electron_density_cm3,
     gas_entry_label,
     gas_entry_slug,
+    print_available_gases,
     read_detector_geometry_config,
     read_diffusion_summary_table,
     read_gas_density_table,
     read_recoil_window_table,
     resolve_recoil_window_keV,
+    select_gas_rows,
 )
 import scatteringPlots as sp
 from cevns_pipeline import (
     add_cevns_cli_args,
+    aggregate_cevns_summary,
     compute_cevns_spectra_for_gas,
     load_cevns_config,
     save_cevns_tables,
     solar_active_flux,
     write_cevns_spectrum_plots,
-    write_cevns_summary,
 )
 
 
 SECONDS_PER_YEAR = 365.25 * 24.0 * 3600.0
+CEVNS_RATE_COLUMNS_PER_YEAR = {
+    "vector_rate_s-1": "vector_rate_year^-1",
+    "axial_rate_s-1": "axial_rate_year^-1",
+    "total_rate_s-1": "total_rate_year^-1",
+    "vector_total_rate_s-1": "vector_total_rate_year^-1",
+    "axial_total_rate_s-1": "axial_total_rate_year^-1",
+}
 
 DEFAULT_OUTDIR = REPO_ROOT / "solar_nu_gas_target_rates"
 DEFAULT_RESPONSE_CONFIG = REPO_ROOT / "reco_response_config.json"
@@ -86,6 +95,18 @@ def parse_args() -> argparse.Namespace:
         default=str(DEFAULT_GAS_CSV),
         help="Gas density table",
     )
+    parser.add_argument(
+        "--gas",
+        default=None,
+        help="Optional gas-row filter by gas name, full label, or output slug.",
+    )
+    parser.add_argument(
+        "--pressure-atm",
+        type=float,
+        default=None,
+        help="Optional pressure selector in atm, e.g. 10 for the focused CF4 run.",
+    )
+    parser.add_argument("--list-gases", action="store_true", help="Print available gas rows and exit")
     parser.add_argument(
         "--range-csv",
         default=str(DEFAULT_RANGE_CSV),
@@ -641,6 +662,68 @@ def write_summary_plot(outdir: Path, summary_df: pd.DataFrame) -> None:
     plt.close(fig)
 
 
+def convert_cevns_summary_rates_to_year(summary_df: pd.DataFrame) -> pd.DataFrame:
+    out = summary_df.copy()
+    columns = []
+    drop_columns = []
+    for col in out.columns:
+        year_col = CEVNS_RATE_COLUMNS_PER_YEAR.get(col)
+        if year_col is None:
+            columns.append(col)
+            continue
+        out[year_col] = out[col].astype(float) * SECONDS_PER_YEAR
+        columns.append(year_col)
+        drop_columns.append(col)
+    if drop_columns:
+        out = out.drop(columns=drop_columns)
+    return out[columns]
+
+
+def write_solar_cevns_summary(
+    cevns_outdir: Path,
+    summary_rows: list[pd.DataFrame],
+    skip_save: bool,
+    skip_plots: bool,
+    filename: str = "cevns_rate_summary.csv",
+) -> pd.DataFrame:
+    if summary_rows:
+        summary_df = pd.concat(summary_rows, ignore_index=True)
+    else:
+        summary_df = pd.DataFrame()
+    if summary_df.empty:
+        return summary_df
+
+    aggregate_df = aggregate_cevns_summary(summary_df, "rate")
+    aggregate_df = convert_cevns_summary_rates_to_year(aggregate_df)
+    detail_df = convert_cevns_summary_rates_to_year(summary_df)
+    detail_filename = filename.replace(".csv", "_by_isotope.csv")
+    if not aggregate_df.empty:
+        aggregate_df["isotope_detail_csv"] = detail_filename if not skip_save else ""
+
+    if not skip_save:
+        cevns_outdir.mkdir(parents=True, exist_ok=True)
+        aggregate_df.to_csv(cevns_outdir / filename, index=False)
+        detail_df.to_csv(cevns_outdir / detail_filename, index=False)
+
+    if not skip_plots:
+        cevns_outdir.mkdir(parents=True, exist_ok=True)
+        labels = aggregate_df["gas_label"].copy()
+        values = aggregate_df["total_rate_year^-1"].to_numpy(dtype=float)
+        order = np.argsort(values)
+        fig, ax = plt.subplots(figsize=(11, max(5.5, 0.32 * len(aggregate_df))))
+        ax.barh(labels.iloc[order], values[order], color="#2563eb")
+        positive = values[values > 0.0]
+        if len(positive) > 0 and positive.max() / max(positive.min(), 1.0e-300) > 30.0:
+            ax.set_xscale("log")
+        ax.set_xlabel(r"Total CEvNS rate [year$^{-1}$]")
+        ax.set_title("Gas-total solar CEvNS summary")
+        ax.grid(True, axis="x", which="both", alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(cevns_outdir / filename.replace(".csv", ".png"), dpi=PLOT_DPI)
+        plt.close(fig)
+    return aggregate_df
+
+
 def main() -> int:
     args = parse_args()
 
@@ -666,6 +749,10 @@ def main() -> int:
 
     flux_df = sp.read_flux_csv(flux_csv)
     gas_df = read_gas_density_table(gas_csv)
+    if args.list_gases:
+        print_available_gases(gas_df)
+        return 0
+    gas_df = select_gas_rows(gas_df, args.gas, args.pressure_atm)
     recoil_window_df = read_recoil_window_table(range_csv)
     diffusion_df = read_diffusion_summary_table(diffusion_csv)
     geometry = read_detector_geometry_config(geometry_config)
@@ -809,10 +896,9 @@ def main() -> int:
     summary_path = outdir / "gas_target_rate_summary.csv"
     summary_df.to_csv(summary_path, index=False)
     write_summary_plot(outdir, summary_df)
-    cevns_summary_df = write_cevns_summary(
+    cevns_summary_df = write_solar_cevns_summary(
         cevns_outdir,
         cevns_summary_rows,
-        quantity="rate",
         skip_save=args.skip_cevns_save,
         skip_plots=args.skip_cevns_plots,
         filename="cevns_rate_summary.csv",
@@ -831,7 +917,7 @@ def main() -> int:
     if cevns_config.enabled:
         print(
             "CEvNS enabled: "
-            f"threshold={cevns_config.nr_threshold_keV:g} keV, "
+            f"threshold={cevns_config.threshold_description}, "
             f"max={cevns_config.nr_max_keV}, "
             f"form_factor={cevns_config.form_factor}, "
             f"axial_model={cevns_config.axial_model}"
@@ -840,7 +926,7 @@ def main() -> int:
         if not cevns_summary_df.empty:
             print(
                 "CEvNS total solar rate across all gas-aggregated summary rows: "
-                f"{cevns_summary_df['total_rate_s-1'].sum():.6e} s^-1"
+                f"{cevns_summary_df['total_rate_year^-1'].sum():.6e} year^-1"
             )
     return 0
 

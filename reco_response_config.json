@@ -7,6 +7,9 @@
   "reco_energy_bins": 100,
   "cevns": {
     "enabled": true,
+    "threshold_mode": "qf_electron_equivalent",
+    "visible_threshold_keVee": 1.0,
+    "quenching_dir": "quenching_factor",
     "nr_threshold_keV": 1.0,
     "nr_max_keV": null,
     "form_factor": "default",

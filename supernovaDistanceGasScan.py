@@ -23,6 +23,7 @@ import scatteringPlots as sp
 from cevns_pipeline import (
     CEVNS_AXIAL_MODELS,
     CEVNS_FORM_FACTORS,
+    CEVNS_THRESHOLD_MODES,
     CevnsConfig,
     aggregate_cevns_enu_spectrum,
     aggregate_cevns_recoil_spectrum,
@@ -205,7 +206,24 @@ def parse_args() -> argparse.Namespace:
         "--nr-threshold-kev",
         type=float,
         default=1.0,
-        help="True nuclear-recoil CEvNS threshold in keV",
+        help="True nuclear-recoil CEvNS threshold in keV when threshold mode is true_nr",
+    )
+    parser.add_argument(
+        "--cevns-threshold-mode",
+        choices=CEVNS_THRESHOLD_MODES,
+        default="true_nr",
+        help="CEvNS threshold convention",
+    )
+    parser.add_argument(
+        "--cevns-visible-threshold-kevee",
+        type=float,
+        default=1.0,
+        help="Electron-equivalent CEvNS threshold in keVee for QF threshold mode",
+    )
+    parser.add_argument(
+        "--cevns-quenching-dir",
+        default=str(REPO_ROOT / "quenching_factor"),
+        help="Directory containing isotope quenching CSVs such as C_in_CF4.csv",
     )
     parser.add_argument(
         "--nr-max-kev",
@@ -666,6 +684,9 @@ def write_metadata(
         ("electron_recoil_threshold_low_keV", electron_threshold_low_keV),
         ("electron_recoil_threshold_high_keV", electron_threshold_high_keV),
         ("cevns_nr_threshold_keV", cevns_config.nr_threshold_keV),
+        ("cevns_threshold_mode", cevns_config.threshold_mode),
+        ("cevns_visible_threshold_keVee", cevns_config.visible_threshold_keVee),
+        ("cevns_quenching_dir", str(cevns_config.quenching_dir)),
         ("cevns_nr_max_keV", cevns_config.nr_max_keV),
         ("cevns_form_factor", cevns_config.form_factor),
         ("cevns_axial_model", cevns_config.axial_model),
@@ -825,6 +846,28 @@ def process_model(
             "all_channels_counts_total": electron_total + cevns_total,
             "all_channels_average_rate_Hz": (electron_total + cevns_total) / burst_duration_s,
             "cevns_nr_threshold_keV": cevns_config.nr_threshold_keV,
+            "cevns_threshold_mode": cevns_config.threshold_mode,
+            "cevns_visible_threshold_keVee": (
+                cevns_config.visible_threshold_keVee
+                if cevns_config.threshold_mode == "qf_electron_equivalent"
+                else np.nan
+            ),
+            "cevns_effective_nr_thresholds_keV": ";".join(
+                f"{row['isotope']}:{float(row['effective_nr_threshold_keV']):.6g}"
+                for _, row in cevns_summary_by_isotope.iterrows()
+            ),
+            "cevns_quenching_source_files": ";".join(
+                sorted(
+                    {
+                        str(value)
+                        for value in cevns_summary_by_isotope.get(
+                            "quenching_source_file",
+                            pd.Series(dtype=str),
+                        )
+                        if str(value)
+                    }
+                )
+            ),
             "cevns_nr_max_keV": cevns_config.nr_max_keV,
             "cevns_form_factor": cevns_config.form_factor,
             "cevns_axial_model": cevns_config.axial_model,
@@ -933,6 +976,9 @@ def main() -> int:
         nr_max_keV=args.nr_max_kev,
         form_factor=args.form_factor,
         axial_model=args.axial_model,
+        threshold_mode=args.cevns_threshold_mode,
+        visible_threshold_keVee=float(args.cevns_visible_threshold_kevee),
+        quenching_dir=Path(args.cevns_quenching_dir),
     )
     validate_cevns_config(cevns_config)
 

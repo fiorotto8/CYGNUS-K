@@ -1,0 +1,284 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage{jcappub}
+\usepackage{lineno}
+\linenumbers
+
+\title{\boldmath A focused CEvNS and neutrino-electron benchmark for a 200 m$^3$ CF$_4$ gas TPC}
+
+\author{D. TODO}
+\affiliation{TODO institution,\\
+TODO address, Country}
+
+\emailAdd{TODO@example.org}
+
+\abstract{
+We present a focused feasibility benchmark for solar and core-collapse
+supernova neutrino detection in a CYGNUS-K-like gas time projection chamber.
+The benchmark fixes a 10 m $\times$ 10 m $\times$ 2 m fiducial volume
+(200 m$^3$) filled with CF$_4$ at the existing 10 atm gas-table point, used as
+the first proxy for a 10 bar configuration. We treat neutrino-electron
+scattering and coherent elastic neutrino-nucleus scattering (CEvNS) separately:
+directional electron-recoil information is used only for the neutrino-electron
+channel, while CEvNS is assumed to be non-directional and threshold-limited.
+For the CEvNS baseline we use a 1.0 keVee visible threshold converted to
+isotope-dependent true nuclear-recoil thresholds with TRIM quenching curves for
+C and F in CF$_4$. This paper is not a complete background-limited sensitivity
+study; it defines the benchmark, reports first-pass rates and burst counts, and
+identifies the detector-response ingredients needed for a full feasibility
+assessment.
+}
+
+\begin{document}
+\maketitle
+\flushbottom
+
+\section{Introduction}
+\label{sec:introduction}
+
+Directional gas time projection chambers are usually discussed in the context
+of rare-event searches, but the same low-threshold gaseous target can also
+provide a useful neutrino benchmark. The purpose of this note is deliberately
+narrow: we define one fixed CYGNUS-K-like configuration and ask what solar and
+supernova neutrino signals are expected before a full background model is
+introduced.
+
+The key detector assumption is channel-dependent. For neutrino-electron
+scattering, electron range and diffusion determine the accepted electron-recoil
+window, and angular information can improve neutrino-energy reconstruction. For
+CEvNS, however, no event-by-event directionality is assumed. The CEvNS
+benchmark is therefore controlled by a visible-energy threshold and by nuclear
+quenching, not by the electron-recoil directional threshold.
+
+The result should be read as a compact feasibility benchmark rather than a
+discovery-reach paper. Backgrounds, efficiency turn-on curves, trigger
+implementation, and systematic uncertainty propagation are listed explicitly as
+future work in section~\ref{sec:limitations}.
+
+\section{Benchmark detector and target}
+\label{sec:benchmark}
+
+The baseline detector is the rectangular fiducial geometry used by the analysis
+repository:
+\begin{equation}
+L \times W \times H = 2~{\rm m} \times 10~{\rm m} \times 10~{\rm m}
+= 200~{\rm m}^3 \, .
+\end{equation}
+The target gas is CF$_4$ at the 10 atm entry in the gas-density table. In this
+draft we refer to this as the 10 bar benchmark for readability, but the final
+paper must either convert the gas table to exactly 10 bar or consistently use
+10 atm throughout.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\hline
+Quantity & Baseline value \\
+\hline
+Fiducial volume & 200 m$^3$ \\
+Geometry & 10 m $\times$ 10 m $\times$ 2 m \\
+Gas & CF$_4$ \\
+Gas table row & 10 atm (10 bar proxy) \\
+CEvNS threshold mode & 1.0 keVee converted with TRIM QF \\
+CEvNS directionality & none assumed \\
+$\nu$-e directionality & allowed for electron recoils only \\
+Supernova reference model & SN1987A-like fluence at 10 kpc \\
+\hline
+\end{tabular}
+\caption{Fixed run card for the first focused benchmark.}
+\label{tab:run-card}
+\end{table}
+
+\section{Directionality and threshold convention}
+\label{sec:thresholds}
+
+For the neutrino-electron channel, the accepted electron recoil energy window is
+derived from electron range and diffusion. This is a reconstruction and
+topology requirement on electron tracks.
+
+For CEvNS, the observable is instead a quenched nuclear recoil. The baseline
+visible threshold is
+\begin{equation}
+E_{\rm ee}^{\rm thr} = 1.0~{\rm keVee} \, .
+\end{equation}
+For isotope $i$, the corresponding true nuclear recoil threshold is obtained by
+solving
+\begin{equation}
+Q_i(T_N) T_N = E_{\rm ee}^{\rm thr} \, ,
+\label{eq:qf-threshold}
+\end{equation}
+where $Q_i$ is the TRIM quenching factor for C or F recoils in CF$_4$. The
+current TRIM tables imply approximately 3.0 keVnr for carbon and 3.6 keVnr for
+fluorine at 1.0 keVee. The analysis code forbids extrapolation outside the TRIM
+tables for the baseline.
+
+\begin{figure}[htbp]
+\centering
+\fbox{\begin{minipage}{0.88\textwidth}
+TODO: replace this box with the quenching-factor plot generated from
+\texttt{quenching\_factor/C\_in\_CF4.csv} and
+\texttt{quenching\_factor/F\_in\_CF4.csv}. Mark the 1.0 keVee crossing for C
+and F.
+\end{minipage}}
+\caption{TRIM quenching curves used to convert the CEvNS visible threshold to
+isotope-dependent true nuclear-recoil thresholds.}
+\label{fig:qf}
+\end{figure}
+
+\section{Neutrino inputs and interaction model}
+\label{sec:model}
+
+The solar calculation uses the repository solar flux tables and the compact
+flavor split described in the code documentation. The supernova calculation
+uses the analytic time-integrated fluence model currently labelled
+SN1987A-like, with the reference fluence generated at 10 kpc.
+
+The neutrino-electron channel uses Standard Model elastic scattering on target
+electrons. For CEvNS we use the vector weak charge for C and F, with the
+implemented axial contribution for $^{19}$F. The current hydrogen axial
+limitation is irrelevant for the CF$_4$ benchmark.
+
+\section{Focused benchmark results}
+\label{sec:results}
+
+This section records the regenerated CF$_4$ 10 atm outputs from the run card in
+appendix~\ref{app:run-card}. These values should be refreshed whenever the
+detector response, flux inputs, or threshold convention changes.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lr}
+\hline
+Observable & Value \\
+\hline
+Solar $\nu$-e total rate & $5.62 \times 10^3$ yr$^{-1}$ \\
+Solar CEvNS total rate & $2.59 \times 10^2$ yr$^{-1}$ \\
+SN $\nu$-e counts at 10 kpc & $6.09 \times 10^{-2}$ \\
+SN CEvNS counts at 10 kpc & $17.1$ \\
+Distance where CEvNS gives 1 event & $41.4$ kpc \\
+\hline
+\end{tabular}
+\caption{Headline benchmark quantities for CF$_4$ at 10 atm in 200 m$^3$,
+using the 1.0 keVee QF-converted CEvNS threshold.}
+\label{tab:headline}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\begin{minipage}{0.88\textwidth}
+TODO: insert the solar CEvNS recoil and accepted-neutrino-energy spectra from
+\texttt{solar\_nu\_gas\_target\_rates/cevns/cf4\_10atm/}.
+\end{minipage}}
+\caption{Solar CEvNS spectra for the focused CF$_4$ benchmark.}
+\label{fig:solar-cevns}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\begin{minipage}{0.88\textwidth}
+TODO: insert the supernova counts-versus-distance plot from
+\texttt{supernova\_distance\_gas\_scan/SN1987A\_like/cf4\_10atm/}.
+\end{minipage}}
+\caption{Expected supernova event counts versus distance for CF$_4$ at 10 atm.}
+\label{fig:sn-distance}
+\end{figure}
+
+\section{Limitations and next steps}
+\label{sec:limitations}
+
+The focused benchmark intentionally omits several ingredients that are required
+for a complete feasibility paper:
+\begin{itemize}
+\item detector efficiency and trigger turn-on near the CEvNS threshold;
+\item background rates, including radiogenic, cosmogenic, and instrumental
+backgrounds;
+\item a validated nuclear-recoil energy-resolution model;
+\item uncertainty propagation for solar fluxes, supernova spectra, form
+factors, axial response, quenching, gas density, and threshold;
+\item conversion from the 10 atm proxy to an exactly specified 10 bar operating
+point.
+\end{itemize}
+
+The next paper iteration should convert this benchmark into a sensitivity
+study by adding efficiency and background models and by reporting detection
+probabilities or confidence intervals instead of only raw rates and counts.
+
+\section{Conclusions}
+\label{sec:conclusions}
+
+We have defined a focused, reproducible benchmark for a 200 m$^3$ CF$_4$
+CYGNUS-K-like detector. The central methodological point is that CEvNS is
+treated as non-directional and therefore uses a quenching-converted visible
+threshold, while directionality remains part of the neutrino-electron channel.
+Once the regenerated CF$_4$ 10 atm results are inserted, this draft can serve
+as the seed for a compact JCAP feasibility paper.
+
+\appendix
+
+\section{Run card}
+\label{app:run-card}
+
+The benchmark outputs should be regenerated with a single consistent threshold
+configuration:
+\begin{verbatim}
+python3 plotFluxes.py
+python3 gasTargetRates.py --gas CF4 --pressure-atm 10
+python3 recoNuEnergyComparison.py --gas CF4 --pressure-atm 10
+
+python3 generate_sn_fluence.py
+python3 supernovaGasTargetEvents.py --gas CF4 --pressure-atm 10
+python3 supernovaRecoNuEnergyComparison.py --gas CF4 --pressure-atm 10
+
+python3 supernovaDistanceGasScan.py \
+  --gas CF4 \
+  --pressure-atm 10 \
+  --cevns-threshold-mode qf_electron_equivalent \
+  --cevns-visible-threshold-kevee 1.0
+\end{verbatim}
+
+The CEvNS configuration block used for the paper should contain
+\begin{verbatim}
+"threshold_mode": "qf_electron_equivalent",
+"visible_threshold_keVee": 1.0,
+"quenching_dir": "quenching_factor"
+\end{verbatim}
+with CEvNS enabled.
+
+\section{CEvNS threshold conversion}
+\label{app:qf}
+
+The TRIM quenching files are two-column CSV files. The first column is true
+nuclear recoil energy in keVnr and the second column is
+$Q(T_N)=E_{\rm ee}/T_N$. The code sorts each curve by true recoil energy,
+checks that $Q(T_N)T_N$ is strictly increasing, and then linearly interpolates
+the solution to equation~\eqref{eq:qf-threshold}. Extrapolation is not allowed
+for the baseline.
+
+\acknowledgments
+
+TODO.
+
+\begin{thebibliography}{99}
+
+\bibitem{Freedman1974}
+D.Z. Freedman,
+\emph{Coherent effects of a weak neutral current},
+Phys. Rev. D {\bf 9} (1974) 1389.
+
+\bibitem{COHERENT2017}
+COHERENT collaboration,
+\emph{Observation of coherent elastic neutrino-nucleus scattering},
+Science {\bf 357} (2017) 1123.
+
+\bibitem{Angloher2025}
+G. Angloher et al.,
+\emph{Neutrino flux sensitivity to the next galactic core-collapse supernova in COSINUS},
+JCAP {\bf 03} (2025) 037.
+
+\bibitem{CYGNUS}
+CYGNUS collaboration,
+\emph{CYGNUS: Feasibility of a nuclear recoil observatory with directional sensitivity to dark matter and neutrinos},
+TODO update bibliographic data before submission.
+
+\end{thebibliography}
+
+\end{document}

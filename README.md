@@ -285,14 +285,33 @@ The code must not approximate hydrogen axial scattering with:
 
 ### CEvNS Threshold
 
-CEvNS uses a detector-level threshold interpreted for now as a true nuclear
-recoil threshold:
+CEvNS supports two detector-threshold conventions. The original convention is a
+true nuclear-recoil threshold:
 
 ```text
 cevns.nr_threshold_keV
 ```
 
-It can be overridden with:
+The focused CF4 feasibility-paper convention is an electron-equivalent visible
+threshold converted isotope-by-isotope with TRIM quenching curves:
+
+```text
+cevns.threshold_mode = qf_electron_equivalent
+cevns.visible_threshold_keVee = 1.0
+```
+
+For pure CF4, the quenching files are:
+
+- `quenching_factor/C_in_CF4.csv`
+- `quenching_factor/F_in_CF4.csv`
+
+Each row is interpreted as true nuclear recoil energy in keVnr and
+`QF = Eee / Enr`. The code solves `QF(T_N) * T_N = Eee_threshold` by
+interpolation and does not extrapolate outside the TRIM tables. For the default
+1.0 keVee threshold this gives about 3.0 keVnr for `12C` and about 3.6 keVnr
+for `19F`.
+
+The true nuclear-recoil threshold can still be overridden with:
 
 ```bash
 --cevns-threshold-kev 1.0
@@ -305,10 +324,8 @@ An optional true nuclear-recoil maximum can be supplied with:
 ```
 
 or left unset to integrate to the kinematic maximum. CEvNS does not reuse the
-electron-recoil range/diffusion thresholds. Quenching and electron-equivalent
-threshold conversion are not implemented. When quenching is added later, the
-detector threshold must be mapped between electron-equivalent energy and true
-nuclear-recoil energy; that mapping is intentionally outside the current code.
+electron-recoil range/diffusion thresholds, because CEvNS is treated as
+non-directional in this repository.
 
 ## Configuration
 
@@ -336,6 +353,9 @@ and the optional CEvNS block:
   "reco_energy_bins": 100,
   "cevns": {
     "enabled": true,
+    "threshold_mode": "qf_electron_equivalent",
+    "visible_threshold_keVee": 1.0,
+    "quenching_dir": "quenching_factor",
     "nr_threshold_keV": 1.0,
     "nr_max_keV": null,
     "form_factor": "default",
@@ -348,6 +368,9 @@ and the optional CEvNS block:
 If the `cevns` block is absent, scripts use safe defaults:
 
 - `enabled = false`
+- `threshold_mode = true_nr`
+- `visible_threshold_keVee = 1.0`
+- `quenching_dir = quenching_factor`
 - `nr_threshold_keV = 1.0`
 - `nr_max_keV = null`
 - `form_factor = default`
@@ -359,6 +382,9 @@ CLI options override config values:
 ```bash
 --enable-cevns
 --disable-cevns
+--cevns-threshold-mode true_nr|qf_electron_equivalent
+--cevns-visible-threshold-kevee 1.0
+--cevns-quenching-dir quenching_factor
 --cevns-threshold-kev 1.0
 --cevns-max-kev 10.0
 --cevns-form-factor default|helm|pointlike
@@ -435,13 +461,17 @@ Primary summary columns include:
 - `gas`
 - `isotopes`
 - `number_of_targets_total`
+- `threshold_mode`
+- `visible_threshold_keVee`
 - `nr_threshold_keV`
+- `effective_nr_thresholds_keV`
+- `quenching_source_files`
 - `nr_max_keV`
 - `form_factor`
 - `axial_model`
-- `vector_total_rate_s-1` or `vector_total_counts`
-- `axial_total_rate_s-1` or `axial_total_counts`
-- `total_rate_s-1` or `total_counts`
+- `vector_total_rate_year^-1` for solar, or `vector_total_counts` for supernova
+- `axial_total_rate_year^-1` for solar, or `axial_total_counts` for supernova
+- `total_rate_year^-1` for solar, or `total_counts` for supernova
 - `axial_fraction`
 - `hydrogen_axial_warning`
 - `isotope_detail_csv`
@@ -531,8 +561,8 @@ python3 recoNuEnergyComparison.py --disable-cevns
 
 ```bash
 python3 plotFluxes.py
-python3 gasTargetRates.py --enable-cevns --cevns-threshold-kev 1.0
-python3 recoNuEnergyComparison.py --enable-cevns --cevns-threshold-kev 1.0
+python3 gasTargetRates.py --gas CF4 --pressure-atm 10
+python3 recoNuEnergyComparison.py --gas CF4 --pressure-atm 10
 ```
 
 ### Supernova, Electron Scattering Only
@@ -547,23 +577,27 @@ python3 supernovaRecoNuEnergyComparison.py --disable-cevns
 
 ```bash
 python3 generate_sn_fluence.py
-python3 supernovaGasTargetEvents.py --enable-cevns --cevns-threshold-kev 1.0
-python3 supernovaRecoNuEnergyComparison.py --enable-cevns --cevns-threshold-kev 1.0
+python3 supernovaGasTargetEvents.py --gas CF4 --pressure-atm 10
+python3 supernovaRecoNuEnergyComparison.py --gas CF4 --pressure-atm 10
 ```
 
 ### Supernova Distance Scan
 
-Run every gas row in the gas-density table:
+Focused CF4 10 atm paper run:
 
 ```bash
-python3 supernovaDistanceGasScan.py --nr-threshold-kev 1.0
+python3 supernovaDistanceGasScan.py \
+  --gas CF4 \
+  --pressure-atm 10 \
+  --cevns-threshold-mode qf_electron_equivalent \
+  --cevns-visible-threshold-kevee 1.0
 ```
 
 To inspect or restrict the gas rows:
 
 ```bash
 python3 supernovaDistanceGasScan.py --list-gases
-python3 supernovaDistanceGasScan.py --gas cf4_1atm --nr-threshold-kev 1.0
+python3 supernovaDistanceGasScan.py --gas cf4_10atm
 ```
 
 The distance scan writes one subfolder per gas row under
@@ -613,6 +647,7 @@ python3 gasTargetRates.py \
 
 python3 gasTargetRates.py \
   --enable-cevns \
+  --cevns-threshold-mode true_nr \
   --cevns-threshold-kev 1.0 \
   --t-grid-points 80 \
   --costh-grid-points 80 \
@@ -620,6 +655,7 @@ python3 gasTargetRates.py \
 
 python3 recoNuEnergyComparison.py \
   --enable-cevns \
+  --cevns-threshold-mode true_nr \
   --cevns-threshold-kev 1.0 \
   --t-grid-points 40 \
   --max-true-energy-points 80 \
@@ -636,6 +672,7 @@ python3 supernovaGasTargetEvents.py \
 
 python3 supernovaGasTargetEvents.py \
   --enable-cevns \
+  --cevns-threshold-mode true_nr \
   --fluence-root /tmp/cygnus_review_sn_fluence \
   --output-root /tmp/cygnus_review_sn_events_with_cevns \
   --t-grid-points 80 \
@@ -643,6 +680,7 @@ python3 supernovaGasTargetEvents.py \
 
 python3 supernovaRecoNuEnergyComparison.py \
   --enable-cevns \
+  --cevns-threshold-mode true_nr \
   --fluence-root /tmp/cygnus_review_sn_fluence \
   --output-root /tmp/cygnus_review_sn_reco_with_cevns \
   --t-grid-points 40 \
@@ -654,6 +692,7 @@ Additional switch checks:
 ```bash
 python3 gasTargetRates.py \
   --enable-cevns \
+  --cevns-threshold-mode true_nr \
   --skip-cevns-plots \
   --t-grid-points 20 \
   --costh-grid-points 20 \
@@ -661,6 +700,7 @@ python3 gasTargetRates.py \
 
 python3 gasTargetRates.py \
   --enable-cevns \
+  --cevns-threshold-mode true_nr \
   --skip-cevns-save \
   --t-grid-points 20 \
   --costh-grid-points 20 \
@@ -688,16 +728,17 @@ Validation record from April 29, 2026:
 - CF4 aggregation check passed: gas-total `CF4 @ 1 atm` equals `12C + 19F`
   from the isotope diagnostic file within numerical precision.
 
-Representative CEvNS values for the default 200 m3 detector, threshold
-`1.0 keV`, `form_factor=default`, and
+Representative focused-paper CEvNS values for the default 200 m3 detector,
+`CF4 @ 10 atm`, `threshold_mode=qf_electron_equivalent`,
+`visible_threshold_keVee=1.0`, `form_factor=default`, and
 `axial_model=hoferichter_19f_fast`:
 
 | Quantity | Value |
 | --- | ---: |
-| Solar CEvNS total, all configured gases | `2.6119615624430152e-05 s^-1` |
-| Solar CEvNS total, `CF4 @ 1 atm` | `1.7377926123377398e-06 s^-1` |
-| SN1987A-like CEvNS total, all configured gases | `30.19570376170965 counts` |
-| SN1987A-like CEvNS total, `CF4 @ 1 atm` | `2.0093971116078406 counts` |
+| Effective `12C` threshold | `3.000769 keVnr` |
+| Effective `19F` threshold | `3.561327 keVnr` |
+| Solar CEvNS total, `CF4 @ 10 atm` | `259.066961 year^-1` |
+| SN1987A-like CEvNS total, `CF4 @ 10 atm`, 10 kpc | `17.10108 counts` |
 
 The final smoke script printed:
 
@@ -706,14 +747,27 @@ aggregation_checks_ok
 FULL_SMOKE_OK
 ```
 
+Focused-paper validation record from May 29, 2026:
+
+- QF inversion at 1.0 keVee gives `12C = 3.000769 keVnr` and
+  `19F = 3.561327 keVnr`.
+- The CF4 10 atm solar CEvNS aggregate equals the isotope-detail sum within
+  numerical precision.
+- Switching CEvNS from `true_nr` to `qf_electron_equivalent` changes the CF4
+  10 atm solar CEvNS total from about `548.9 year^-1` to about
+  `259.1 year^-1`.
+- Solar, supernova, and distance-scan summaries all report
+  `threshold_mode=qf_electron_equivalent` for the focused run.
+
 ## Limitations
 
 - The solar oscillation/flavor split is compact and approximate.
 - The neutrino-electron gas-target rates include range/diffusion acceptance,
   but not a full detector simulation.
 - CEvNS has no directionality.
-- CEvNS uses a true nuclear-recoil threshold. Quenching and
-  electron-equivalent threshold conversion are not implemented.
+- CEvNS can use a true nuclear-recoil threshold or, for pure CF4, a
+  TRIM-quenching-converted electron-equivalent threshold. Other gases still
+  require validated quenching inputs before using the QF mode.
 - Hydrogen axial/proton neutral-current elastic scattering is not implemented;
   hydrogen contributes only through the suppressed vector term.
 - The default `1H` and `4He` vector form factors are pointlike. Helm for those
